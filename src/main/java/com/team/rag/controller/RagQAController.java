@@ -30,6 +30,10 @@ public class RagQAController {
     @Operation(summary = "RAG 混合检索问答")
     @PostMapping(value = "/qa", produces = MediaType.TEXT_EVENT_STREAM_VALUE + ";charset=utf-8")
     public Flux<String> qa(@Valid @RequestBody RagQo qo) {
+        // 和示例代码保持一致：前端没有传 memoryId 时，默认使用 1 作为会话编号。
+        if (qo.getMemoryId() == null) {
+            qo.setMemoryId(1L);
+        }
         return ragQAService.qa(qo);
     }
 }

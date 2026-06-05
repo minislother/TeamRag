@@ -51,6 +51,11 @@
             <artifactId>langchain4j</artifactId>
             <version>${langchain4j.version}</version>
         </dependency>
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-open-ai</artifactId>
+            <version>${langchain4j.version}</version>
+        </dependency>
 
         <dependency>
             <groupId>org.apache.tika</groupId>
@@ -115,6 +120,20 @@
                             <groupId>org.projectlombok</groupId>
                             <artifactId>lombok</artifactId>
                         </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <configuration>
+                    <excludes>
+                        <exclude>com/team/rag/TeamRagApplication*</exclude>
+                        <exclude>com/team/rag/bean/**</exclude>
+                        <exclude>com/team/rag/client/**</exclude>
+                        <exclude>com/team/rag/config/**</exclude>
+                        <exclude>com/team/rag/controller/**</exclude>
                     </excludes>
                 </configuration>
             </plugin>

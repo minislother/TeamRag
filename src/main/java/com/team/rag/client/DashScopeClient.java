@@ -1,68 +1,51 @@
 package com.team.rag.client;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.team.rag.config.RagProperties;
+import dev.langchain4j.data.embedding.Embedding;
+import dev.langchain4j.data.segment.TextSegment;
+import dev.langchain4j.model.chat.response.ChatResponse;
+import dev.langchain4j.model.chat.response.StreamingChatResponseHandler;
+import dev.langchain4j.model.openai.OpenAiChatModel;
+import dev.langchain4j.model.openai.OpenAiEmbeddingModel;
+import dev.langchain4j.model.openai.OpenAiStreamingChatModel;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.MediaType;
 import org.springframework.util.StringUtils;
-import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
- * 阿里百炼 OpenAI 兼容接口客户端。
+ * 阿里百炼 DashScope 模型客户端。
  *
- * <p>用于调用 text-embedding-v3 向量模型和 glm-5 对话模型。
- * 项目复用 RepoPilot 的 .env 时，会优先读取 REPOPILOT_GLM_API_KEY 作为 DashScope 密钥。</p>
+ * <p>示例代码通过 LangChain4j 的模型对象调用 embedding 和 streaming chat。
+ * 当前项目默认 chat model 是 glm-5，所以这里使用 LangChain4j 的 OpenAI-compatible
+ * 模型类承接示例流程，同时保留现有 base URL / API Key 配置。</p>
  */
 @RequiredArgsConstructor
 public class DashScopeClient {
 
-    private final WebClient webClient;
-    private final ObjectMapper objectMapper;
     private final RagProperties properties;
 
     /**
-     * 批量向量化文本。
+     * 批量向量化文本；文档入库和问题检索都会先把文本变成向量。
      */
     public List<float[]> embed(List<String> texts) {
         requireApiKey();
         if (texts == null || texts.isEmpty()) {
             return List.of();
         }
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("model", properties.getDashscope().getEmbeddingModel());
-        payload.put("input", texts);
-        if (properties.getDashscope().getEmbeddingDimensions() != null) {
-            payload.put("dimensions", properties.getDashscope().getEmbeddingDimensions());
-        }
-
-        JsonNode root = webClient.post()
-                .uri(normalizeBaseUrl() + "/embeddings")
-                .headers(headers -> headers.setBearerAuth(properties.getDashscope().getApiKey()))
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(payload)
-                .retrieve()
-                .bodyToMono(JsonNode.class)
-                .block();
-
-        if (root == null || !root.has("data")) {
-            throw new IllegalStateException("DashScope embedding 响应为空");
-        }
-        List<float[]> vectors = new ArrayList<>();
-        for (JsonNode item : root.get("data")) {
-            vectors.add(toFloatArray(item.get("embedding")));
-        }
-        return vectors;
+        List<TextSegment> segments = texts.stream()
+                .map(TextSegment::from)
+                .toList();
+        return embeddingModel().embedAll(segments)
+                .content()
+                .stream()
+                .map(Embedding::vector)
+                .toList();
     }
 
     /**
-     * 单条文本向量化。
+     * 单条文本向量化，主要用于把用户问题转成查询向量。
      */
     public float[] embedOne(String text) {
         List<float[]> vectors = embed(List.of(text));
@@ -73,115 +56,83 @@ public class DashScopeClient {
     }
 
     /**
-     * 非流式生成，主要用于查询重写和摘要。
+     * 非流式生成，主要用于查询重写和短期记忆摘要。
      */
     public String complete(String prompt) {
         requireApiKey();
-        Map<String, Object> payload = chatPayload(prompt, false);
-        JsonNode root = webClient.post()
-                .uri(normalizeBaseUrl() + "/chat/completions")
-                .headers(headers -> headers.setBearerAuth(properties.getDashscope().getApiKey()))
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(payload)
-                .retrieve()
-                .bodyToMono(JsonNode.class)
-                .block();
-        return extractChatContent(root);
+        return chatModel().chat(prompt);
     }
 
     /**
-     * 流式生成答案，返回增量文本 Flux。
+     * 流式生成答案；RAG 最终回答和示例代码一样走流式大模型。
      */
     public Flux<String> stream(String prompt) {
-        requireApiKey();
-        Map<String, Object> payload = chatPayload(prompt, Boolean.TRUE.equals(properties.getDashscope().getStreamEnabled()));
-        if (!Boolean.TRUE.equals(payload.get("stream"))) {
+        if (!Boolean.TRUE.equals(properties.getDashscope().getStreamEnabled())) {
             return Flux.just(complete(prompt));
         }
-        return webClient.post()
-                .uri(normalizeBaseUrl() + "/chat/completions")
-                .headers(headers -> headers.setBearerAuth(properties.getDashscope().getApiKey()))
-                .accept(MediaType.TEXT_EVENT_STREAM)
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(payload)
-                .retrieve()
-                .bodyToFlux(String.class)
-                .flatMapIterable(this::parseSseChunk)
-                .filter(StringUtils::hasText);
-    }
-
-    /**
-     * 组装 DashScope OpenAI 兼容 chat/completions 请求体。
-     */
-    private Map<String, Object> chatPayload(String prompt, boolean stream) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("model", properties.getDashscope().getChatModel());
-        payload.put("temperature", properties.getDashscope().getTemperature());
-        payload.put("stream", stream);
-        payload.put("messages", List.of(
-                Map.of("role", "system", "content", "你是团队知识库助手，只能基于给定上下文回答。"),
-                Map.of("role", "user", "content", prompt)
-        ));
-        return payload;
-    }
-
-    /**
-     * 从非流式聊天响应中提取首个候选答案文本。
-     */
-    private String extractChatContent(JsonNode root) {
-        if (root == null || !root.has("choices") || root.get("choices").isEmpty()) {
-            return "";
-        }
-        JsonNode message = root.get("choices").get(0).get("message");
-        return message == null ? "" : message.path("content").asText("");
-    }
-
-    /**
-     * 解析 DashScope SSE 分片，提取增量输出文本。
-     */
-    private List<String> parseSseChunk(String chunk) {
-        List<String> deltas = new ArrayList<>();
-        for (String rawLine : chunk.split("\\R")) {
-            String line = rawLine.trim();
-            if (line.isEmpty() || line.equals("data: [DONE]") || line.equals("[DONE]")) {
-                continue;
-            }
-            if (line.startsWith("data:")) {
-                line = line.substring("data:".length()).trim();
-            }
-            if (!line.startsWith("{")) {
-                continue;
-            }
+        requireApiKey();
+        return Flux.create(sink -> {
             try {
-                JsonNode root = objectMapper.readTree(line);
-                JsonNode delta = root.path("choices").path(0).path("delta").path("content");
-                if (!delta.isMissingNode()) {
-                    deltas.add(delta.asText(""));
-                    continue;
+                streamingChatModel().chat(prompt, new StreamingChatResponseHandler() {
+                    @Override
+                    public void onPartialResponse(String partialResponse) {
+                        if (StringUtils.hasText(partialResponse)) {
+                            sink.next(partialResponse);
+                        }
+                    }
+
+                    @Override
+                    public void onCompleteResponse(ChatResponse completeResponse) {
+                        sink.complete();
+                    }
+
+                    @Override
+                    public void onError(Throwable error) {
+                        sink.error(error);
+                    }
+                });
+            } catch (Exception ex) {
+                if (!sink.isCancelled()) {
+                    sink.error(ex);
                 }
-                JsonNode message = root.path("choices").path(0).path("message").path("content");
-                if (!message.isMissingNode()) {
-                    deltas.add(message.asText(""));
-                }
-            } catch (Exception ignored) {
-                // SSE 分片可能被 WebClient 按非 JSON 边界切开，无法解析时跳过当前碎片。
             }
-        }
-        return deltas;
+        });
     }
 
     /**
-     * 将 JSON embedding 数组转换为 Java float 向量。
+     * 创建 LangChain4j embedding model，对应示例里的 text-embedding-v3。
      */
-    private float[] toFloatArray(JsonNode embedding) {
-        if (embedding == null || !embedding.isArray()) {
-            throw new IllegalStateException("DashScope embedding 字段缺失");
-        }
-        float[] vector = new float[embedding.size()];
-        for (int i = 0; i < embedding.size(); i++) {
-            vector[i] = (float) embedding.get(i).asDouble();
-        }
-        return vector;
+    private OpenAiEmbeddingModel embeddingModel() {
+        return OpenAiEmbeddingModel.builder()
+                .baseUrl(normalizeBaseUrl())
+                .apiKey(properties.getDashscope().getApiKey())
+                .modelName(properties.getDashscope().getEmbeddingModel())
+                .dimensions(properties.getDashscope().getEmbeddingDimensions())
+                .build();
+    }
+
+    /**
+     * 创建非流式 chat model，供查询重写和摘要这些后台小任务使用。
+     */
+    private OpenAiChatModel chatModel() {
+        return OpenAiChatModel.builder()
+                .baseUrl(normalizeBaseUrl())
+                .apiKey(properties.getDashscope().getApiKey())
+                .modelName(properties.getDashscope().getChatModel())
+                .temperature(properties.getDashscope().getTemperature())
+                .build();
+    }
+
+    /**
+     * 创建流式 chat model，对应示例代码里的 streamingChatModel。
+     */
+    private OpenAiStreamingChatModel streamingChatModel() {
+        return OpenAiStreamingChatModel.builder()
+                .baseUrl(normalizeBaseUrl())
+                .apiKey(properties.getDashscope().getApiKey())
+                .modelName(properties.getDashscope().getChatModel())
+                .temperature(properties.getDashscope().getTemperature())
+                .build();
     }
 
     /**

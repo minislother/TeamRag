@@ -19,7 +19,6 @@ public class RagProperties {
     private SemanticSplitter semanticSplitter = new SemanticSplitter();
     private Hybrid hybrid = new Hybrid();
     private Memory memory = new Memory();
-    private Qa qa = new Qa();
 
     @Data
     public static class DashScope {
@@ -65,11 +64,5 @@ public class RagProperties {
     public static class Memory {
         private Integer windowSize = 8;
         private Integer summaryThreshold = 12;
-    }
-
-    @Data
-    public static class Qa {
-        private Boolean generalFallbackEnabled = true;
-        private String generalFallbackPrefix = "知识库未命中，以下为通用大模型回答（不代表知识库事实）：\n\n";
     }
 }

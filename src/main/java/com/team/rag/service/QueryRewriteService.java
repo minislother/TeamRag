@@ -30,6 +30,7 @@ public class QueryRewriteService {
         prompt.append("请将用户问题改写成适合团队知识库检索的独立查询。只输出改写后的查询，不要解释。\n");
         prompt.append("短期记忆：\n");
         shortMemory.forEach(message -> prompt.append(message.getRole()).append(": ").append(message.getContent()).append("\n"));
+        // 这里生成的是“检索用问题”，最终回答时仍会把用户问题放回 Prompt。
         prompt.append("用户问题：").append(query);
         try {
             String rewritten = dashScopeClient.complete(prompt.toString()).trim();

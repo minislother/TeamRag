@@ -44,7 +44,6 @@ class RagQAServiceTest {
     @BeforeEach
     void setUp() {
         properties = new RagProperties();
-        properties.getQa().setGeneralFallbackPrefix("[知识库未命中]\n");
         ragQAService = new RagQAService(
                 shortTermMemoryService,
                 queryRewriteService,
@@ -72,17 +71,16 @@ class RagQAServiceTest {
 
         // When & Then
         StepVerifier.create(ragQAService.qa(qo))
-                .expectNext("[知识库未命中]\n")
                 .expectNext("可以缓存空值、使用布隆过滤器或做参数校验。")
                 .verifyComplete();
 
         assertThat(promptCaptor.getValue())
-                .contains("通用 AI 助手")
-                .doesNotContain("RAG 检索资料");
+                .isEqualTo("请回答问题：Redis 缓存穿透如何解决")
+                .doesNotContain("检索资料");
         verify(shortTermMemoryService).appendExchange(
                 eq("demo"),
                 eq(qo.getQuery()),
-                eq("[知识库未命中]\n可以缓存空值、使用布隆过滤器或做参数校验。")
+                eq("可以缓存空值、使用布隆过滤器或做参数校验。")
         );
     }
 
@@ -112,13 +110,38 @@ class RagQAServiceTest {
                 .verifyComplete();
 
         assertThat(promptCaptor.getValue())
-                .contains("RAG 检索资料")
-                .contains("redis.md")
-                .doesNotContain("通用 AI 助手");
+                .contains("1、缓存穿透可以通过缓存空值、布隆过滤器、参数校验解决。")
+                .contains("知识库中未找到相关答案")
+                .contains("用户问题：Redis 缓存穿透如何解决")
+                .doesNotContain("请回答问题：");
         verify(shortTermMemoryService).appendExchange(
                 eq("demo"),
                 eq(qo.getQuery()),
                 eq("根据知识库，缓存穿透可以通过缓存空值、布隆过滤器、参数校验解决。")
+        );
+    }
+
+    @Test
+    @DisplayName("RAG 问答 - 未传会话信息时默认使用 memoryId 1")
+    void testQa_NoConversation_UseDefaultMemoryId() {
+        // Given
+        RagQo qo = new RagQo();
+        qo.setQuery("Redis 是什么");
+        when(shortTermMemoryService.getRecentMessages("1")).thenReturn(List.of());
+        when(queryRewriteService.rewrite(qo.getQuery(), List.of())).thenReturn(qo.getQuery());
+        when(longTermMemoryService.recall(qo.getQuery())).thenReturn(List.of());
+        when(bm25Retriever.retrieve(qo.getQuery(), null, properties.getPinecone().getNamespace())).thenReturn(List.of());
+        when(dashScopeClient.stream("请回答问题：Redis 是什么")).thenReturn(Flux.just("Redis 是内存数据库。"));
+
+        // When & Then
+        StepVerifier.create(ragQAService.qa(qo))
+                .expectNext("Redis 是内存数据库。")
+                .verifyComplete();
+
+        verify(shortTermMemoryService).appendExchange(
+                eq("1"),
+                eq(qo.getQuery()),
+                eq("Redis 是内存数据库。")
         );
     }
 }

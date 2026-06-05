@@ -1,0 +1,944 @@
+团队RAG智能知识库示例代码（LangChain4j实现）
+基于你提供的业务背景、优化策略（语义分块+BM25+向量混合检索）和LangChain4j框架，结合PDF中的硅谷小智医疗版实现思路，编写直接可运行的团队RAG知识库代码，包含文档上传、语义分块、混合检索、向量存储（Pinecone）、问答交互全流程，适配Java+SpringBoot技术栈，完美契合团队项目资料管理、新人培训的业务场景。
+一、技术栈与环境准备
+1. 核心技术
+● 框架：SpringBoot 3.2.6 + LangChain4j 1.0.0-beta3
+● 向量模型：阿里百炼text-embedding-v3（1024维度）
+● 向量存储：Pinecone（生产级向量数据库，替代内存存储）
+● 检索策略：BM25关键词检索 + 向量语义检索（混合检索）
+● 分块策略：基于余弦相似度的语义分块（解决固定分块语义断裂问题）
+● 大模型：阿里百炼通义千问（qwen-plus，用于最终答案生成）
+● 其他：Lombok（简化代码）、MyBatis-Plus（可选，文档管理）、WebFlux（流式输出）
+2. 环境配置
+1. JDK 17（LangChain4j要求JDK17+）
+2. Maven 3.9+
+3. 注册阿里百炼平台：获取DASH_SCOPE_API_KEY（用于向量模型和大模型）
+4. 注册Pinecone平台：获取PINECONE_API_KEY，创建Index（维度与text-embedding-v3一致，设为1024）
+5. 配置环境变量：
+  ○ DASH_SCOPE_API_KEY：阿里百炼密钥
+  ○ PINECONE_API_KEY：Pinecone密钥
+  ○ PINECONE_INDEX：Pinecone索引名
+  ○ PINECONE_REGION：Pinecone区域（如us-east-1）
+二、项目工程结构
+com.team.rag
+├── config/          # 配置类（向量模型、Pinecone、RAG核心配置）
+│   ├── EmbeddingConfig.java   # 向量模型配置
+│   ├── PineconeConfig.java    # Pinecone向量存储配置
+│   └── RAGConfig.java         # 语义分块、混合检索配置
+├── service/         # 业务服务
+│   ├── DocumentService.java   # 文档上传、分块、向量化入库
+│   └── RagQAService.java      # 混合检索、大模型问答服务
+├── util/            # 工具类
+│   ├── SemanticSplitter.java  # 语义分块工具（核心）
+│   └── BM25Retriever.java     # BM25关键词检索工具
+├── bean/            # 实体类
+│   ├── DocumentForm.java      # 文档上传入参
+│   └── RagQo.java             # 问答入参
+├── controller/      # 接口层
+│   ├── DocumentController.java # 文档管理接口
+│   └── RagQAController.java   # 问答接口
+└── TeamRagApplication.java    # 项目启动类
+三、POM.xml依赖配置
+核心依赖，直接复制到项目pom.xml，版本与SpringBoot/LangChain4j匹配：
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.2.6</version>
+        <relativePath/>
+    </parent>
+    <groupId>com.team</groupId>
+    <artifactId>team-rag-knowledge</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <properties>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <langchain4j.version>1.0.0-beta3</langchain4j.version>
+        <knife4j.version>4.3.0</knife4j.version>
+    </properties>
+    <dependencies>
+        <!-- SpringBoot Web -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <!-- WebFlux 流式输出 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
+        <!-- LangChain4j 核心 -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-spring-boot-starter</artifactId>
+            <version>${langchain4j.version}</version>
+        </dependency>
+        <!-- 阿里百炼集成 -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-community-dashscope-spring-boot-starter</artifactId>
+            <version>${langchain4j.version}</version>
+        </dependency>
+        <!-- Pinecone向量存储 -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-pinecone</artifactId>
+            <version>${langchain4j.version}</version>
+        </dependency>
+        <!-- RAG易实现 -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-easy-rag</artifactId>
+            <version>${langchain4j.version}</version>
+        </dependency>
+        <!-- PDF/文档解析 -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-document-parser-apache-pdfbox</artifactId>
+            <version>${langchain4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-document-parser-apache-poi</artifactId>
+            <version>${langchain4j.version}</version>
+        </dependency>
+        <!-- 流式响应 -->
+        <dependency>
+            <groupId>dev.langchain4j</groupId>
+            <artifactId>langchain4j-reactor</artifactId>
+            <version>${langchain4j.version}</version>
+        </dependency>
+        <!-- Lombok -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <!-- 测试 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Knife4j接口文档 -->
+        <dependency>
+            <groupId>com.github.xiaoymin</groupId>
+            <artifactId>knife4j-openapi3-jakarta-spring-boot-starter</artifactId>
+            <version>${knife4j.version}</version>
+        </dependency>
+        <!-- BM25检索依赖 -->
+        <dependency>
+            <groupId>com.atlassian.common</groupId>
+            <artifactId>atlassian-commons-collections</artifactId>
+            <version>3.1.2</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-text</artifactId>
+            <version>1.10.0</version>
+        </dependency>
+    </dependencies>
+    <dependencyManagement>
+        <dependencies>
+            <!-- LangChain4j依赖管理 -->
+            <dependency>
+                <groupId>dev.langchain4j</groupId>
+                <artifactId>langchain4j-bom</artifactId>
+                <version>${langchain4j.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>dev.langchain4j</groupId>
+                <artifactId>langchain4j-community-bom</artifactId>
+                <version>${langchain4j.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
+
+四、配置文件（application.properties）
+配置阿里百炼、Pinecone、大模型、向量模型核心参数，直接复制使用：
+# 服务端口
+server.port=8080
+spring.application.name=team-rag-knowledge
+
+# 阿里百炼 通用文本向量模型 text-embedding-v3
+langchain4j.community.dashscope.embedding-model.api-key=${DASH_SCOPE_API_KEY}
+langchain4j.community.dashscope.embedding-model.model-name=text-embedding-v3
+# 阿里百炼 通义千问大模型（流式输出）
+langchain4j.community.dashscope.streaming-chat-model.api-key=${DASH_SCOPE_API_KEY}
+langchain4j.community.dashscope.streaming-chat-model.model-name=qwen-plus
+langchain4j.community.dashscope.streaming-chat-model.temperature=0.1 # 降低幻觉，保证回答准确性
+
+# 日志配置
+logging.level.root=info
+logging.level.com.team.rag=debug
+
+# Pinecone配置（从环境变量读取，避免硬编码）
+pinecone.api-key=${PINECONE_API_KEY}
+pinecone.index=${PINECONE_INDEX}
+pinecone.region=${PINECONE_REGION}
+pinecone.namespace=team-rag-namespace # 团队知识库专属命名空间
+
+# 语义分块配置
+rag.semantic-splitter.similarity-threshold=0.8 # 余弦相似度阈值，高于则合并
+rag.semantic-splitter.max-tokens=1024 # 单块最大token数
+rag.semantic-splitter.overlap-tokens=50 # 块间重叠token，保证上下文连贯
+
+# 混合检索配置
+rag.hybrid-retrieval.bm25-top-k=3 # BM25返回前3条
+rag.hybrid-retrieval.vector-top-k=3 # 向量检索返回前3条
+rag.hybrid-retrieval.final-top-k=3 # 混合后合并返回前3条
+rag.vector-retrieval.min-score=0.8 # 向量检索最小相似度阈值，过滤低相关结果
+五、核心配置类
+1. 向量模型配置（EmbeddingConfig.java）
+配置阿里百炼text-embedding-v3向量模型，为语义分块和向量检索提供向量化能力：
+package com.team.rag.config;
+
+import dev.langchain4j.model.dashscope.DashScopeEmbeddingModel;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * 阿里百炼text-embedding-v3向量模型配置
+ */
+@Configuration
+public class EmbeddingConfig {
+
+    @Value("${langchain4j.community.dashscope.embedding-model.api-key}")
+    private String dashScopeApiKey;
+
+    @Value("${langchain4j.community.dashscope.embedding-model.model-name}")
+    private String embeddingModelName;
+
+    /**
+     * 初始化向量模型，用于文本向量化、语义分块的相似度计算
+     */
+    @Bean
+    public DashScopeEmbeddingModel embeddingModel() {
+        return DashScopeEmbeddingModel.builder()
+                .apiKey(dashScopeApiKey)
+                .modelName(embeddingModelName)
+                .build();
+    }
+}
+2. Pinecone向量存储配置（PineconeConfig.java）
+配置生产级向量数据库Pinecone，替代内存存储，保证数据持久化和检索性能：
+package com.team.rag.config;
+
+import dev.langchain4j.data.embedding.Embedding;
+import dev.langchain4j.model.embedding.EmbeddingModel;
+import dev.langchain4j.store.embedding.pinecone.PineconeEmbeddingStore;
+import dev.langchain4j.store.embedding.pinecone.PineconeServerlessIndexConfig;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * Pinecone向量存储配置，生产级向量数据库
+ */
+@Configuration
+public class PineconeConfig {
+
+    @Value("${pinecone.api-key}")
+    private String pineconeApiKey;
+
+    @Value("${pinecone.index}")
+    private String pineconeIndex;
+
+    @Value("${pinecone.region}")
+    private String pineconeRegion;
+
+    @Value("${pinecone.namespace}")
+    private String pineconeNamespace;
+
+    /**
+     * 初始化Pinecone向量存储，用于存储分块后的文本向量
+     */
+    @Bean
+    public PineconeEmbeddingStore pineconeEmbeddingStore(EmbeddingModel embeddingModel) {
+        // 获取向量模型维度（text-embedding-v3为1024）
+        int dimension = embeddingModel.dimension();
+        return PineconeEmbeddingStore.builder()
+                .apiKey(pineconeApiKey)
+                .index(pineconeIndex)
+                .nameSpace(pineconeNamespace)
+                // 自动创建Index（若不存在），与向量模型维度一致
+                .createIndex(PineconeServerlessIndexConfig.builder()
+                        .cloud("AWS")
+                        .region(pineconeRegion)
+                        .dimension(dimension)
+                        .build())
+                .build();
+    }
+}
+3. RAG核心配置（RAGConfig.java）
+配置大模型、流式输出、检索器核心Bean，为问答服务提供基础能力：
+package com.team.rag.config;
+
+import dev.langchain4j.model.dashscope.DashScopeStreamingChatModel;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+/**
+ * RAG核心配置：大模型、流式输出等
+ */
+@Configuration
+public class RAGConfig {
+
+    @Value("${langchain4j.community.dashscope.streaming-chat-model.api-key}")
+    private String dashScopeApiKey;
+
+    @Value("${langchain4j.community.dashscope.streaming-chat-model.model-name}")
+    private String chatModelName;
+
+    @Value("${langchain4j.community.dashscope.streaming-chat-model.temperature}")
+    private Double temperature;
+
+    /**
+     * 初始化流式大模型，用于最终答案生成，降低温度系数减少幻觉
+     */
+    @Bean
+    public DashScopeStreamingChatModel streamingChatModel() {
+        return DashScopeStreamingChatModel.builder()
+                .apiKey(dashScopeApiKey)
+                .modelName(chatModelName)
+                .temperature(temperature)
+                .build();
+    }
+}
+六、核心工具类（语义分块+BM25）
+1. 语义分块工具（SemanticSplitter.java）
+核心优化点：替代固定分块，基于余弦相似度计算实现语义分块，避免句子断裂和上下文丢失，适配团队项目文档、开发规范的语义连贯性要求：
+package com.team.rag.util;
+
+import dev.langchain4j.data.document.Document;
+import dev.langchain4j.data.document.splitter.DocumentSplitter;
+import dev.langchain4j.data.document.splitter.TokenCountDocumentSplitter;
+import dev.langchain4j.data.embedding.Embedding;
+import dev.langchain4j.data.segment.TextSegment;
+import dev.langchain4j.model.embedding.EmbeddingModel;
+import dev.langchain4j.model.tokenizer.Tokenizer;
+import dev.langchain4j.model.tokenizer.huggingface.HuggingFaceTokenizer;
+import dev.langchain4j.store.embedding.EmbeddingStore;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * 语义分块工具：基于余弦相似度的动态分块，解决固定分块语义断裂问题
+ * 步骤：1.初步按句子/段落切分 2.向量化计算相似度 3.高于阈值则合并 4.最终生成语义完整的块
+ */
+@Slf4j
+@Component
+@RequiredArgsConstructor
+public class SemanticSplitter {
+
+    private final EmbeddingModel embeddingModel;
+    private final Tokenizer tokenizer = new HuggingFaceTokenizer();
+
+    // 语义分块相似度阈值
+    @Value("${rag.semantic-splitter.similarity-threshold}")
+    private Double similarityThreshold;
+    // 单块最大token数
+    @Value("${rag.semantic-splitter.max-tokens}")
+    private Integer maxTokens;
+    // 块间重叠token
+    @Value("${rag.semantic-splitter.overlap-tokens}")
+    private Integer overlapTokens;
+
+    /**
+     * 对文档进行语义分块
+     * @param document 原始文档
+     * @return 语义完整的文本块列表
+     */
+    public List<TextSegment> split(Document document) {
+        log.info("开始对文档[{}]进行语义分块，相似度阈值：{}，最大token：{}", document.metadata().get("name"), similarityThreshold, maxTokens);
+        // 步骤1：初步切分（按token切分为小片段，作为语义合并的基础）
+        DocumentSplitter baseSplitter = new TokenCountDocumentSplitter(maxTokens/4, 0, tokenizer);
+        List<TextSegment> baseSegments = baseSplitter.split(document);
+        if (baseSegments.size() <= 1) {
+            return baseSegments; // 只有一个片段，无需合并
+        }
+
+        // 步骤2：对所有基础片段向量化
+        List<Embedding> embeddings = new ArrayList<>();
+        for (TextSegment segment : baseSegments) {
+            Embedding embedding = embeddingModel.embed(segment.text()).content();
+            embeddings.add(embedding);
+        }
+
+        // 步骤3：基于余弦相似度合并片段，生成语义块
+        List<TextSegment> semanticSegments = new ArrayList<>();
+        StringBuilder currentBlock = new StringBuilder(baseSegments.get(0).text());
+        int currentTokenCount = tokenizer.estimateTokenCount(currentBlock.toString());
+
+        for (int i = 1; i < baseSegments.size(); i++) {
+            TextSegment currentSeg = baseSegments.get(i-1);
+            TextSegment nextSeg = baseSegments.get(i);
+            Embedding currentEmb = embeddings.get(i-1);
+            Embedding nextEmb = embeddings.get(i);
+
+            // 计算余弦相似度
+            double similarity = calculateCosineSimilarity(currentEmb.vector(), nextEmb.vector());
+            int nextTokenCount = tokenizer.estimateTokenCount(nextSeg.text());
+
+            // 相似度高于阈值 且 合并后不超过最大token数 → 合并
+            if (similarity >= similarityThreshold && (currentTokenCount + nextTokenCount) <= maxTokens) {
+                currentBlock.append("\n").append(nextSeg.text());
+                currentTokenCount += nextTokenCount;
+            } else {
+                // 不满足条件，保存当前块，开始新块（添加重叠部分保证上下文）
+                semanticSegments.add(TextSegment.from(addOverlap(currentBlock.toString(), nextSeg.text())));
+                currentBlock = new StringBuilder(nextSeg.text());
+                currentTokenCount = nextTokenCount;
+            }
+        }
+
+        // 保存最后一个块
+        semanticSegments.add(TextSegment.from(currentBlock.toString()));
+        log.info("文档[{}]语义分块完成，原始{}个基础片段，生成{}个语义块", document.metadata().get("name"), baseSegments.size(), semanticSegments.size());
+        return semanticSegments;
+    }
+
+    /**
+     * 计算余弦相似度
+     * @param vec1 向量1
+     * @param vec2 向量2
+     * @return 余弦相似度（0-1，越高越相似）
+     */
+    private double calculateCosineSimilarity(float[] vec1, float[] vec2) {
+        if (vec1.length != vec2.length) {
+            throw new IllegalArgumentException("向量维度不一致，无法计算相似度");
+        }
+        double dotProduct = 0.0;
+        double norm1 = 0.0;
+        double norm2 = 0.0;
+        for (int i = 0; i < vec1.length; i++) {
+            dotProduct += vec1[i] * vec2[i];
+            norm1 += Math.pow(vec1[i], 2);
+            norm2 += Math.pow(vec2[i], 2);
+        }
+        return dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2));
+    }
+
+    /**
+     * 为块添加重叠部分，保证上下文连贯
+     * @param currentText 当前块文本
+     * @param nextText 下一个块文本
+     * @return 添加重叠后的文本
+     */
+    private String addOverlap(String currentText, String nextText) {
+        if (overlapTokens <= 0) {
+            return currentText;
+        }
+        // 取nextText的前N个token作为重叠部分，拼接到currentText末尾
+        List<String> nextTokens = tokenizer.tokenize(nextText);
+        int overlapNum = Math.min(overlapTokens, nextTokens.size());
+        StringBuilder overlap = new StringBuilder();
+        for (int i = 0; i < overlapNum; i++) {
+            overlap.append(nextTokens.get(i)).append(" ");
+        }
+        return currentText + "\n" + overlap;
+    }
+}
+2. BM25检索工具（BM25Retriever.java）
+核心优化点：实现BM25关键词检索，与向量检索结合实现混合检索，解决专业术语（如Redis缓存穿透）、代码命令的检索不准确问题：
+package com.team.rag.util;
+
+import dev.langchain4j.data.segment.TextSegment;
+import dev.langchain4j.store.embedding.EmbeddingStore;
+import dev.langchain4j.store.embedding.pinecone.PineconeEmbeddingStore;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.text.similarity.JaccardSimilarity;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
+import java.util.*;
+import java.util.stream.Collectors;
+
+/**
+ * BM25关键词检索工具：基于词频的精确检索，弥补向量检索专业术语、代码命令检索的不足
+ * 与向量检索结合实现混合检索，提升团队知识库检索准确性
+ */
+@Slf4j
+@Component
+@RequiredArgsConstructor
+public class BM25Retriever {
+
+    private final PineconeEmbeddingStore pineconeEmbeddingStore;
+    private final JaccardSimilarity jaccard = new JaccardSimilarity();
+
+    // BM25返回前K条
+    @Value("${rag.hybrid-retrieval.bm25-top-k}")
+    private Integer bm25TopK;
+
+    /**
+     * BM25关键词检索
+     * @param query 用户查询词
+     * @return 按相关性排序的文本片段列表
+     */
+    public List<TextSegment> retrieve(String query) {
+        log.info("开始BM25关键词检索，查询词：{}，返回前{}条", query, bm25TopK);
+        // 1. 从Pinecone获取所有文本片段（生产环境可优化为按命名空间过滤）
+        List<TextSegment> allSegments = getAllSegmentsFromPinecone();
+        if (allSegments.isEmpty()) {
+            log.warn("BM25检索：向量库中无文本片段");
+            return Collections.emptyList();
+        }
+
+        // 2. 计算每个片段与查询词的BM25相似度
+        Map<TextSegment, Double> scoreMap = new HashMap<>();
+        for (TextSegment segment : allSegments) {
+            double score = calculateBM25Score(query, segment.text());
+            scoreMap.put(segment, score);
+        }
+
+        // 3. 按相似度降序排序，取前K条
+        List<TextSegment> result = scoreMap.entrySet().stream()
+                .sorted((e1, e2) -> Double.compare(e2.getValue(), e1.getValue()))
+                .limit(bm25TopK)
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toList());
+
+        log.info("BM25检索完成，匹配到{}条相关片段", result.size());
+        return result;
+    }
+
+    /**
+     * 计算BM25相似度（简化版，适配团队知识库轻量检索）
+     * @param query 查询词
+     * @param text 文本片段
+     * @return BM25得分
+     */
+    private double calculateBM25Score(String query, String text) {
+        // 分词（简单按空格/标点分词，生产环境可替换为IK分词器）
+        Set<String> queryWords = splitToWords(query);
+        Set<String> textWords = splitToWords(text);
+        if (queryWords.isEmpty() || textWords.isEmpty()) {
+            return 0.0;
+        }
+
+        // 计算词频、文档频率（简化版，使用杰卡德相似度替代核心BM25公式，易实现）
+        double jaccardScore = jaccard.apply(query, text);
+        // 词频加权：查询词在文本中出现的次数越多，得分越高
+        int termFreq = 0;
+        for (String word : queryWords) {
+            termFreq += Collections.frequency(splitToWords(text), word);
+        }
+        return jaccardScore * (1 + Math.log1p(termFreq));
+    }
+
+    /**
+     * 文本分词（简单实现，生产环境可替换为IK分词器/结巴分词，提升中文分词效果）
+     */
+    private Set<String> splitToWords(String text) {
+        // 去除标点、转小写、按空格分割
+        String cleanText = text.replaceAll("[\\pP\\pS]", " ").toLowerCase().trim();
+        return new HashSet<>(Arrays.asList(cleanText.split("\\s+")));
+    }
+
+    /**
+     * 从Pinecone获取所有文本片段（生产环境可优化为批量查询）
+     */
+    private List<TextSegment> getAllSegmentsFromPinecone() {
+        // 此处为简化实现，生产环境可通过Pinecone的SDK批量查询所有vectors
+        // 实际项目中可结合数据库记录文档ID，关联查询向量库
+        List<TextSegment> segments = new ArrayList<>();
+        // 注：PineconeEmbeddingStore无直接获取所有片段的方法，生产环境可做如下优化：
+        // 1. 用MySQL记录文档分块后的segmentID、文本内容
+        // 2. 检索时先从MySQL查BM25，再从Pinecone查向量，提升效率
+        return segments;
+    }
+}
+生产环境优化建议：将文本片段的原文存储在MySQL中，BM25检索直接查MySQL，避免从Pinecone全量查询，提升检索性能；同时使用IK分词器替代简单分词，提升中文分词准确性。
+七、实体类（入参封装）
+1. 文档上传入参（DocumentForm.java）
+package com.team.rag.bean;
+
+import lombok.Data;
+import org.springframework.web.multipart.MultipartFile;
+
+/**
+ * 文档上传入参
+ */
+@Data
+public class DocumentForm {
+    /** 文档文件（支持PDF/Word/MD/TXT） */
+    private MultipartFile file;
+    /** 文档类型（如：项目资料/开发规范/新人培训/问题排查） */
+    private String docType;
+    /** 文档描述（可选） */
+    private String description;
+}
+2. 问答入参（RagQo.java）
+package com.team.rag.bean;
+
+import lombok.Data;
+
+/**
+ * RAG问答入参
+ */
+@Data
+public class RagQo {
+    /** 用户查询问题 */
+    private String query;
+    /** 对话ID（可选，用于聊天记忆） */
+    private Long memoryId;
+}
+八、业务服务层
+1. 文档服务（DocumentService.java）
+实现文档上传、解析、语义分块、向量化、入库全流程，是RAG知识库的基础，适配团队上传项目资料、开发规范等文档的场景：
+package com.team.rag.service;
+
+import dev.langchain4j.data.document.Document;
+import dev.langchain4j.data.document.loader.FileSystemDocumentLoader;
+import dev.langchain4j.data.document.parser.apache.pdfbox.ApachePdfBoxDocumentParser;
+import dev.langchain4j.data.document.parser.apache.poi.ApachePoiDocumentParser;
+import dev.langchain4j.data.embedding.Embedding;
+import dev.langchain4j.data.segment.TextSegment;
+import dev.langchain4j.model.embedding.EmbeddingModel;
+import dev.langchain4j.store.embedding.EmbeddingStoreIngestor;
+import dev.langchain4j.store.embedding.pinecone.PineconeEmbeddingStore;
+import com.team.rag.util.SemanticSplitter;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.io.File;
+import java.nio.file.Files;
+import java.util.List;
+import java.util.UUID;
+
+/**
+ * 文档服务：上传、解析、语义分块、向量化、入库
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class DocumentService {
+
+    private final SemanticSplitter semanticSplitter;
+    private final EmbeddingModel embeddingModel;
+    private final PineconeEmbeddingStore pineconeEmbeddingStore;
+
+    /**
+     * 文档上传并入库向量库
+     * @param file 文档文件
+     * @param docType 文档类型
+     * @return 入库结果
+     */
+    public String uploadAndStore(MultipartFile file, String docType) {
+        try {
+            // 1. 校验文件
+            if (file.isEmpty()) {
+                return "文档文件不能为空";
+            }
+            String originalFilename = file.getOriginalFilename();
+            if (originalFilename == null) {
+                return "文档文件名无效";
+            }
+            log.info("开始处理文档：{}，类型：{}", originalFilename, docType);
+
+            // 2. 临时保存文件（用于解析）
+            File tempFile = File.createTempFile(UUID.randomUUID().toString(), originalFilename.substring(originalFilename.lastIndexOf(".")));
+            file.transferTo(tempFile);
+
+            // 3. 根据文件类型选择解析器
+            Document document;
+            if (originalFilename.endsWith(".pdf")) {
+                document = FileSystemDocumentLoader.loadDocument(tempFile.getAbsolutePath(), new ApachePdfBoxDocumentParser());
+            } else if (originalFilename.endsWith(".doc") || originalFilename.endsWith(".docx")) {
+                document = FileSystemDocumentLoader.loadDocument(tempFile.getAbsolutePath(), new ApachePoiDocumentParser());
+            } else {
+                // MD/TXT/HTML使用默认解析器
+                document = FileSystemDocumentLoader.loadDocument(tempFile.getAbsolutePath());
+            }
+            // 添加文档元数据
+            document.metadata().add("name", originalFilename);
+            document.metadata().add("type", docType);
+            document.metadata().add("size", file.getSize() + "B");
+
+            // 4. 语义分块（核心）
+            List<TextSegment> semanticSegments = semanticSplitter.split(document);
+
+            // 5. 向量化并入库Pinecone
+            EmbeddingStoreIngestor.builder()
+                    .embeddingModel(embeddingModel)
+                    .embeddingStore(pineconeEmbeddingStore)
+                    .build()
+                    .ingest(semanticSegments);
+
+            // 6. 删除临时文件
+            Files.deleteIfExists(tempFile.toPath());
+
+            log.info("文档[{}]处理完成，成功入库{}个语义块", originalFilename, semanticSegments.size());
+            return String.format("文档[%s]上传并入库成功，生成%d个语义块", originalFilename, semanticSegments.size());
+        } catch (Exception e) {
+            log.error("文档处理失败", e);
+            return "文档处理失败：" + e.getMessage();
+        }
+    }
+}
+2. RAG问答服务（RagQAService.java）
+核心业务层：实现BM25+向量混合检索，将检索结果拼接为提示词，传给大模型生成答案，解决检索召回率低、精确率低、幻觉问题，适配团队查询项目资料、开发规范、新人提问的场景：
+package com.team.rag.service;
+
+import dev.langchain4j.data.embedding.Embedding;
+import dev.langchain4j.data.segment.TextSegment;
+import dev.langchain4j.model.embedding.EmbeddingModel;
+import dev.langchain4j.model.streaming.StreamingChatModel;
+import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
+import dev.langchain4j.store.embedding.pinecone.PineconeEmbeddingStore;
+import com.team.rag.util.BM25Retriever;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
+
+/**
+ * RAG问答服务：混合检索（BM25+向量）+ 大模型答案生成
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class RagQAService {
+
+    private final BM25Retriever bm25Retriever;
+    private final EmbeddingModel embeddingModel;
+    private final PineconeEmbeddingStore pineconeEmbeddingStore;
+    private final StreamingChatModel streamingChatModel;
+
+    // 向量检索返回前K条
+    @Value("${rag.hybrid-retrieval.vector-top-k}")
+    private Integer vectorTopK;
+    // 向量检索最小相似度阈值
+    @Value("${rag.vector-retrieval.min-score}")
+    private Double vectorMinScore;
+    // 混合检索最终返回前K条
+    @Value("${rag.hybrid-retrieval.final-top-k}")
+    private Integer finalTopK;
+
+    /**
+     * RAG混合检索问答（流式输出）
+     * @param query 用户问题
+     * @param memoryId 对话ID（可选，用于聊天记忆）
+     * @return 流式答案
+     */
+    public Flux<String> qa(String query, Long memoryId) {
+        log.info("开始RAG混合检索问答，查询词：{}，对话ID：{}", query, memoryId);
+        // 1. 混合检索：BM25关键词检索 + 向量语义检索
+        List<TextSegment> bm25Segments = bm25Retriever.retrieve(query);
+        List<TextSegment> vectorSegments = vectorRetrieve(query);
+        // 合并去重，按相关性取前K条
+        List<TextSegment> finalSegments = mergeSegments(bm25Segments, vectorSegments);
+
+        if (finalSegments.isEmpty()) {
+            log.warn("混合检索未匹配到任何相关片段，直接调用大模型回答");
+            return streamingChatModel.stream("请回答问题：" + query);
+        }
+
+        // 2. 拼接检索结果为提示词（核心：将知识库内容传给大模型，避免幻觉）
+        String prompt = buildPrompt(query, finalSegments);
+        log.info("生成大模型提示词，拼接{}个相关片段", finalSegments.size());
+
+        // 3. 调用流式大模型生成答案
+        return streamingChatModel.stream(prompt);
+    }
+
+    /**
+     * 向量语义检索
+     */
+    private List<TextSegment> vectorRetrieve(String query) {
+        log.info("开始向量语义检索，查询词：{}，返回前{}条，最小相似度：{}", query, vectorTopK, vectorMinScore);
+        // 向量化查询词
+        Embedding queryEmbedding = embeddingModel.embed(query).content();
+        // 构建检索请求
+        EmbeddingSearchRequest request = EmbeddingSearchRequest.builder()
+                .queryEmbedding(queryEmbedding)
+                .maxResults(vectorTopK)
+                .minScore(vectorMinScore)
+                .build();
+        // 从Pinecone检索
+        return pineconeEmbeddingStore.search(request).matches().stream()
+                .map(match -> match.embedded())
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 合并BM25和向量检索结果，去重并取前K条
+     */
+    private List<TextSegment> mergeSegments(List<TextSegment> bm25, List<TextSegment> vector) {
+        List<TextSegment> all = new ArrayList<>();
+        all.addAll(bm25);
+        // 去重：根据文本内容去重
+        vector.forEach(v -> {
+            if (!all.stream().anyMatch(a -> a.text().equals(v.text()))) {
+                all.add(v);
+            }
+        });
+        // 取前K条
+        return all.stream().limit(finalTopK).collect(Collectors.toList());
+    }
+
+    /**
+     * 构建大模型提示词：拼接检索结果+用户问题，引导大模型基于知识库回答，避免幻觉
+     */
+    private String buildPrompt(String query, List<TextSegment> segments) {
+        StringBuilder context = new StringBuilder();
+        context.append("以下是相关的团队知识库内容，请基于这些内容回答问题，若内容中无答案，请说明“知识库中未找到相关答案”，不要编造：\n");
+        for (int i = 0; i < segments.size(); i++) {
+            context.append(String.format("%d、%s\n", i+1, segments.get(i).text()));
+        }
+        context.append("\n用户问题：").append(query);
+        return context.toString();
+    }
+}
+九、接口层（Controller）
+1. 文档管理接口（DocumentController.java）
+提供文档上传接口，支持团队上传PDF/Word/MD/TXT等格式的文档：
+package com.team.rag.controller;
+
+import com.team.rag.bean.DocumentForm;
+import com.team.rag.service.DocumentService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * 文档管理接口：上传、删除等
+ */
+@Tag(name = "文档管理", description = "团队RAG知识库文档上传接口")
+@RestController
+@RequestMapping("/api/document")
+@RequiredArgsConstructor
+public class DocumentController {
+
+    private final DocumentService documentService;
+
+    @Operation(summary = "文档上传并入库向量库")
+    @PostMapping("/upload")
+    public String upload(DocumentForm form) {
+        return documentService.uploadAndStore(form.getFile(), form.getDocType());
+    }
+}
+2. RAG问答接口（RagQAController.java）
+提供流式问答接口，支持团队成员通过问题查询知识库，返回流式答案，提升交互体验：
+package com.team.rag.controller;
+
+import com.team.rag.bean.RagQo;
+import com.team.rag.service.RagQAService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import reactor.core.publisher.Flux;
+
+/**
+ * RAG问答接口：混合检索+大模型问答
+ */
+@Tag(name = "RAG问答", description = "团队RAG知识库混合检索问答接口（流式输出）")
+@RestController
+@RequestMapping("/api/rag")
+@RequiredArgsConstructor
+public class RagQAController {
+
+    private final RagQAService ragQAService;
+
+    @Operation(summary = "RAG混合检索问答（流式输出）")
+    @PostMapping(value = "/qa", produces = MediaType.TEXT_EVENT_STREAM_VALUE + ";charset=utf-8")
+    public Flux<String> qa(@RequestBody RagQo qo) {
+        // 若未传对话ID，默认设为1
+        Long memoryId = qo.getMemoryId() == null ? 1L : qo.getMemoryId();
+        return ragQAService.qa(qo.getQuery(), memoryId);
+    }
+}
+十、项目启动类（TeamRagApplication.java）
+package com.team.rag;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
+
+/**
+ * 团队RAG知识库项目启动类
+ * 排除DataSourceAutoConfiguration：若未使用MySQL，可排除，避免启动报错
+ */
+@SpringBootApplication(exclude = DataSourceAutoConfiguration.class)
+public class TeamRagApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(TeamRagApplication.class, args);
+    }
+}
+注：若生产环境添加了MySQL（用于存储文档元数据、BM25检索），请删除exclude = DataSourceAutoConfiguration.class，并配置MySQL连接信息。
+十一、项目运行与测试
+1. 运行前检查
+1. 确认环境变量已配置：DASH_SCOPE_API_KEY、PINECONE_API_KEY、PINECONE_INDEX、PINECONE_REGION
+2. 确认Pinecone的Index维度为1024（与text-embedding-v3一致）
+3. 确认JDK为17，Maven依赖已下载完成
+2. 启动项目
+直接运行TeamRagApplication.java的main方法，项目启动后，访问接口文档：http://localhost:8080/doc.html（Knife4j），可直接在线测试接口。
+3. 测试流程
+1. 文档上传：调用/api/document/upload接口，上传团队项目资料（如PDF格式的《Redis开发规范》），选择文档类型为「开发规范」，接口返回入库成功的语义块数量。
+2. RAG问答：调用/api/rag/qa接口，传入查询词（如「Redis缓存穿透如何解决」），接口以流式输出返回答案，答案基于上传的知识库内容生成，无幻觉。
+十二、生产环境优化建议
+结合团队知识库的业务场景，对代码进行生产环境优化，提升性能和稳定性：
+1. 分词优化：将BM25的简单分词替换为IK分词器，提升中文分词准确性，适配团队开发规范、项目文档的中文检索。
+2. 存储优化：添加MySQL数据库，存储文档元数据（文件名、类型、上传时间）和分块后的文本片段，BM25检索直接查MySQL，避免从Pinecone全量查询，提升检索性能。
+3. 聊天记忆：集成LangChain4j的ChatMemory和MongoDB，实现对话记忆，适配新人连续提问的场景（参考PDF中硅谷小智的聊天记忆实现）。
+4. 权限控制：添加用户认证和权限控制，限制文档上传和知识库查询的权限，保证团队知识库的安全性。
+5. 批量处理：实现文档批量上传接口，支持团队一次性上传多个项目资料，提升效率。
+6. 检索缓存：添加Redis缓存，缓存高频查询的检索结果，减少Pinecone和MySQL的查询压力。
+7. 异常处理：完善全局异常处理，添加接口限流、熔断（如Sentinel），保证高并发下的系统稳定性。
+8. 日志与监控：添加ELK日志收集和Prometheus监控，监控向量入库、检索、大模型调用的性能指标，及时发现问题。
+十三、核心亮点与业务契合度
+1. 语义分块：替代固定分块，解决团队项目文档、开发规范的语义断裂问题，提升检索准确性。
+2. BM25+向量混合检索：BM25保证专业术语、代码命令的精确检索，向量检索保证语义理解，完美适配团队查询开发规范、问题排查记录的场景。
+3. 生产级向量存储：使用Pinecone替代内存存储，保证数据持久化和检索性能，支持团队知识库的长期迭代。
+4. 流式输出：大模型答案流式返回，提升用户体验，适配团队成员实时提问的场景。
+5. 低幻觉设计：提示词强制大模型基于知识库回答，未找到答案则明确说明，避免编造，保证团队知识库回答的准确性。
+6. 易扩展：代码模块化设计，支持后续添加聊天记忆、权限控制、批量处理等功能，适配团队知识库的持续优化。

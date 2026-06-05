@@ -13,7 +13,7 @@ public class RagQo {
     @NotBlank(message = "query 不能为空")
     private String query;
 
-    /** 会话 ID，用于短期记忆；未传时默认使用 default。 */
+    /** 会话 ID，用于短期记忆；未传时会回退到示例代码里的 memoryId=1。 */
     private String conversationId;
 
     /** 兼容参考代码里的 memoryId 字段。 */

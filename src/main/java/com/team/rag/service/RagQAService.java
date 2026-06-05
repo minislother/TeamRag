@@ -16,7 +16,7 @@ import reactor.core.publisher.Flux;
 import java.util.List;
 
 /**
- * RAG 问答服务：短期记忆 + 查询重写 + 长期记忆 + Pinecone 混合检索 + 流式回答。
+ * RAG 问答服务：短期记忆 + 查询重写 + 长期记忆 + Pinecone 混合检索 + Prompt 增强 + 大模型流式回答。
  */
 @Slf4j
 @Service
@@ -37,47 +37,36 @@ public class RagQAService {
     public Flux<String> qa(RagQo qo) {
         String query = qo.getQuery();
         String conversationId = conversationId(qo);
+
+        // 先取出本轮会话最近的问答，后面的查询重写会用它把“继续说一下”这类问题补全。
         List<ChatMessage> shortMemory = shortTermMemoryService.getRecentMessages(conversationId);
+
+        // 查询重写只用于检索，不改变用户问题本身；这样能提高 Pinecone 的召回质量。
         String rewrittenQuery = queryRewriteService.rewrite(query, shortMemory);
+
+        // 长期记忆是用户或团队长期沉淀的信息，示例代码没有实现，这里作为项目扩展保留。
         List<RetrievedSegment> longMemory = longTermMemoryService.recall(rewrittenQuery);
+
+        // RAG 的“检索”步骤：用改写后的问题去 Pinecone 做 BM25 + 向量混合检索。
         List<RetrievedSegment> ragSegments = bm25Retriever.retrieve(
                 rewrittenQuery,
                 qo.getTopK(),
                 properties.getPinecone().getNamespace()
         );
-        boolean generalFallback = shouldUseGeneralFallback(longMemory, ragSegments);
-        String prompt = generalFallback
-                ? promptBuilder.buildGeneralFallback(query, rewrittenQuery, shortMemory)
-                : promptBuilder.build(query, rewrittenQuery, shortMemory, longMemory, ragSegments);
-        log.info("RAG 问答开始，conversationId={}, query={}, rewritten={}, ragHits={}, memoryHits={}, generalFallback={}",
-                conversationId, query, rewrittenQuery, ragSegments.size(), longMemory.size(), generalFallback);
+
+        // 只有真正检索到可用文本时才构造 RAG Prompt；无命中时走示例代码的通用大模型兜底。
+        boolean knowledgeHit = promptBuilder.hasUsableKnowledge(longMemory) || promptBuilder.hasUsableKnowledge(ragSegments);
+        String prompt = knowledgeHit
+                ? promptBuilder.build(query, rewrittenQuery, shortMemory, longMemory, ragSegments)
+                : promptBuilder.buildGeneral(query, rewrittenQuery, shortMemory);
+        log.info("RAG 问答开始，conversationId={}, query={}, rewritten={}, ragHits={}, memoryHits={}, knowledgeHit={}",
+                conversationId, query, rewrittenQuery, ragSegments.size(), longMemory.size(), knowledgeHit);
 
         StringBuilder answer = new StringBuilder();
-        Flux<String> answerFlux = dashScopeClient.stream(prompt);
-        if (generalFallback && StringUtils.hasText(properties.getQa().getGeneralFallbackPrefix())) {
-            answerFlux = Flux.concat(Flux.just(properties.getQa().getGeneralFallbackPrefix()), answerFlux);
-        }
-        return answerFlux
+        return dashScopeClient.stream(prompt)
                 .doOnNext(answer::append)
+                // 模型流式输出结束后，把本轮问答写回短期记忆，供下一轮追问使用。
                 .doOnComplete(() -> shortTermMemoryService.appendExchange(conversationId, query, answer.toString()));
-    }
-
-    /**
-     * 知识库和长期记忆均无命中时，按配置转通用大模型兜底。
-     */
-    private boolean shouldUseGeneralFallback(List<RetrievedSegment> longMemory, List<RetrievedSegment> ragSegments) {
-        return Boolean.TRUE.equals(properties.getQa().getGeneralFallbackEnabled())
-                && !hasUsableSegment(longMemory)
-                && !hasUsableSegment(ragSegments);
-    }
-
-    /**
-     * 判断检索结果里是否存在可写入 Prompt 的有效文本片段。
-     */
-    private boolean hasUsableSegment(List<RetrievedSegment> segments) {
-        return segments != null && segments.stream()
-                .map(RetrievedSegment::getText)
-                .anyMatch(StringUtils::hasText);
     }
 
     /**
@@ -90,6 +79,6 @@ public class RagQAService {
         if (qo.getMemoryId() != null) {
             return String.valueOf(qo.getMemoryId());
         }
-        return "default";
+        return "1";
     }
 }

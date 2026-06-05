@@ -37,7 +37,7 @@ const storage = {
 
 const defaultOptions = {
     docTypes: ["研发规范", "项目资料", "培训材料", "问题排查"],
-    projects: ["default", "team-a", "team-b"],
+    projects: [],
     tags: ["规范", "培训", "排查"]
 };
 
@@ -148,12 +148,19 @@ questionInput.addEventListener("keydown", (event) => {
 async function askQuestion(question, assistantContent) {
     activeController = new AbortController();
     setChatBusy(true);
+    const conversationValue = conversationInput.value.trim();
     const requestBody = {
         query: question,
-        conversationId: conversationInput.value.trim() || "default",
-        project: projectInput.value.trim() || "default",
         topK: Number(topKInput.value || 6)
     };
+    if (!conversationValue || /^\d+$/.test(conversationValue)) {
+        requestBody.memoryId = Number(conversationValue || 1);
+    } else {
+        requestBody.conversationId = conversationValue;
+    }
+    if (projectInput.value.trim()) {
+        requestBody.project = projectInput.value.trim();
+    }
 
     try {
         const response = await fetch("/api/rag/qa", {
@@ -297,8 +304,8 @@ function loadSettings() {
 }
 
 function saveSettings() {
-    localStorage.setItem(storage.conversationId, conversationInput.value.trim() || "default");
-    localStorage.setItem(storage.project, projectInput.value.trim() || "default");
+    localStorage.setItem(storage.conversationId, conversationInput.value.trim() || "1");
+    localStorage.setItem(storage.project, projectInput.value.trim());
     localStorage.setItem(storage.topK, topKInput.value || "6");
 }
 

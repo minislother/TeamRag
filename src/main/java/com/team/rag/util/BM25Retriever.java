@@ -32,8 +32,11 @@ public class BM25Retriever {
      */
     public List<RetrievedSegment> retrieve(String query, Integer topK, String namespace) {
         int limit = topK == null || topK <= 0 ? properties.getHybrid().getTopK() : topK;
+        // sparseVector 类似“关键词指纹”，用于 BM25/稀疏检索。
         SparseVector sparseVector = sparseEncoder.encode(query);
+        // denseVector 是语义向量，用于找意思相近但字面不完全一样的片段。
         float[] denseVector = dashScopeClient.embedOne(query);
+        // Pinecone hybrid query 会把 dense 和 sparse 的得分按 alpha 融合后排序。
         List<RetrievedSegment> segments = pineconeClient.query(
                 namespace,
                 denseVector,

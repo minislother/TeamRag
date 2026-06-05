@@ -18,10 +18,10 @@ public class DocumentForm {
     /** 文档类型，例如：项目资料、研发规范、新人培训、问题排查。 */
     private String docType;
 
-    /** 所属项目，例如：baituan、支付系统、用户中心。 */
+    /** 所属项目，例如：支付系统、用户中心、数据平台。 */
     private String project;
 
-    /** 逗号分隔标签，例如：Redis,缓存,规范。 */
+    /** 逗号分隔标签，例如：接口、缓存、规范。 */
     private String tags;
 
     /** 文档描述，可选。 */

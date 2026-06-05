@@ -48,20 +48,26 @@ public class DocumentService {
         String originalFilename = file.getOriginalFilename() == null ? "unknown" : file.getOriginalFilename();
         String documentId = UUID.randomUUID().toString();
         try (InputStream inputStream = file.getInputStream()) {
+            // 第一步：把 PDF、Word、Markdown、TXT 等不同格式统一解析成纯文本。
             String text = tika.parseToString(inputStream);
             if (!StringUtils.hasText(text)) {
                 throw new IllegalArgumentException("文档未解析出有效文本");
             }
+            // 第二步：给文档打上类型、项目、标签等元数据，后面检索和展示都会用到。
             Map<String, Object> metadata = buildMetadata(form, documentId, originalFilename, file.getSize());
+            // 第三步：把长文档拆成语义块，避免整篇文档太长导致 embedding 或大模型上下文超限。
             List<DocumentSegment> segments = semanticSplitter.split(documentId, text, metadata);
             List<String> segmentTexts = segments.stream().map(DocumentSegment::getText).toList();
+            // 第四步：dense embedding 负责语义匹配，比如“缓存穿透”和“查不到数据一直打数据库”。
             List<float[]> embeddings = dashScopeClient.embed(segmentTexts);
             List<PineconeClient.VectorRecord> records = new ArrayList<>();
             for (int i = 0; i < segments.size(); i++) {
                 DocumentSegment segment = segments.get(i);
+                // sparse vector 负责关键词匹配，能提高专有名词、命令、代码片段的召回效果。
                 SparseVector sparseVector = sparseEncoder.encode(segment.getText());
                 records.add(new PineconeClient.VectorRecord(segment.getId(), embeddings.get(i), sparseVector, segment.getMetadata()));
             }
+            // 第五步：把原文片段、dense 向量、sparse 向量一起写入 Pinecone。
             pineconeClient.upsert(properties.getPinecone().getNamespace(), records);
             log.info("文档 {} 入库成功，生成 {} 个语义块", originalFilename, segments.size());
             return DocumentUploadResponse.builder()
@@ -99,7 +105,7 @@ public class DocumentService {
         metadata.put("documentId", documentId);
         metadata.put("filename", filename);
         metadata.put("docType", safe(form.getDocType(), "未分类"));
-        metadata.put("project", safe(form.getProject(), "default"));
+        metadata.put("project", safe(form.getProject(), ""));
         metadata.put("tags", safe(form.getTags(), ""));
         metadata.put("description", safe(form.getDescription(), ""));
         metadata.put("size", size);

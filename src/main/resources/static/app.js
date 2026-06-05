@@ -13,15 +13,17 @@ const docTypeInput = document.querySelector("#docTypeInput");
 const tagsInput = document.querySelector("#tagsInput");
 const tagEntryInput = document.querySelector("#tagEntryInput");
 const tagChipList = document.querySelector("#tagChipList");
+const tagOptionList = document.querySelector("#tagOptionList");
 const docTypeMenu = document.querySelector("#docTypeMenu");
 const projectMenu = document.querySelector("#projectMenu");
 const tagMenu = document.querySelector("#tagMenu");
+const tagPickerButton = document.querySelector("#tagPickerButton");
+const tagPickerSummary = document.querySelector("#tagPickerSummary");
+const tagCreateButton = document.querySelector("#tagCreateButton");
 const docTypeToggle = document.querySelector("#docTypeToggle");
 const projectToggle = document.querySelector("#projectToggle");
-const tagToggle = document.querySelector("#tagToggle");
 const docTypeClear = document.querySelector("#docTypeClear");
 const projectClear = document.querySelector("#projectClear");
-const tagClear = document.querySelector("#tagClear");
 
 let activeController = null;
 let selectedTags = [];
@@ -376,14 +378,16 @@ function textValue(value) {
 
 function createSingleCombo({ input, menu, toggleButton, clearButton, optionKey }) {
     let activeIndex = -1;
+    const root = input.closest(".combo");
 
     input.addEventListener("focus", open);
     input.addEventListener("input", () => {
         activeIndex = -1;
+        updateValueState();
         open();
     });
     input.addEventListener("keydown", (event) => {
-        const options = filteredOptions();
+        const options = menuOptions();
         if (event.key === "ArrowDown") {
             event.preventDefault();
             open();
@@ -400,7 +404,7 @@ function createSingleCombo({ input, menu, toggleButton, clearButton, optionKey }
         }
         if (event.key === "Enter" && activeIndex >= 0 && options[activeIndex]) {
             event.preventDefault();
-            select(options[activeIndex]);
+            select(options[activeIndex].value);
             return;
         }
         if (event.key === "Escape") {
@@ -420,6 +424,7 @@ function createSingleCombo({ input, menu, toggleButton, clearButton, optionKey }
     clearButton.addEventListener("click", () => {
         input.value = "";
         activeIndex = -1;
+        updateValueState();
         input.focus();
         open(true);
         saveSettings();
@@ -441,32 +446,49 @@ function createSingleCombo({ input, menu, toggleButton, clearButton, optionKey }
     }
 
     function render(showAll = false) {
-        const options = filteredOptions(showAll);
+        const options = menuOptions(showAll);
         menu.innerHTML = "";
         if (options.length === 0) {
             const empty = document.createElement("div");
             empty.className = "combo-empty";
-            empty.textContent = "无匹配项";
+            empty.textContent = "暂无可选项，可直接输入新值";
             menu.append(empty);
             return;
         }
         options.forEach((option, index) => {
             const button = document.createElement("button");
             button.type = "button";
-            button.className = `combo-option${index === activeIndex ? " active" : ""}`;
+            button.className = `combo-option${option.kind === "create" ? " create" : ""}${index === activeIndex ? " active" : ""}`;
             button.role = "option";
-            button.textContent = option;
+            const mainText = document.createElement("span");
+            mainText.className = "combo-option-main";
+            mainText.textContent = option.kind === "create" ? `新建「${option.value}」` : option.value;
+            const metaText = document.createElement("span");
+            metaText.className = "combo-option-meta";
+            metaText.textContent = option.kind === "create" ? "Enter" : "已有";
+            button.append(mainText, metaText);
             button.addEventListener("pointerdown", preventBlur);
-            button.addEventListener("click", () => select(option));
+            button.addEventListener("click", () => select(option.value));
             menu.append(button);
         });
     }
 
     function select(value) {
         input.value = value;
+        updateValueState();
         close();
         input.focus();
         saveSettings();
+    }
+
+    function menuOptions(showAll = false) {
+        const options = filteredOptions(showAll).map((value) => ({ kind: "existing", value }));
+        const query = input.value.trim();
+        const exists = optionState[optionKey].some((option) => option.toLowerCase() === query.toLowerCase());
+        if (query && !exists) {
+            options.unshift({ kind: "create", value: query });
+        }
+        return options;
     }
 
     function filteredOptions(showAll = false) {
@@ -474,106 +496,79 @@ function createSingleCombo({ input, menu, toggleButton, clearButton, optionKey }
         return optionState[optionKey].filter((option) => option.toLowerCase().includes(query));
     }
 
+    function updateValueState() {
+        root.classList.toggle("has-value", Boolean(input.value.trim()));
+    }
+
+    updateValueState();
     return { close, render };
 }
 
 function createTagCombo() {
-    let activeIndex = -1;
-
-    tagEntryInput.addEventListener("focus", open);
-    tagEntryInput.addEventListener("input", () => {
-        consumeDelimitedTags();
-        activeIndex = -1;
+    tagPickerButton.addEventListener("click", () => {
+        if (tagMenu.classList.contains("open")) {
+            close();
+            return;
+        }
         open();
     });
+    tagEntryInput.addEventListener("input", () => {
+        consumeDelimitedTags();
+        render();
+    });
     tagEntryInput.addEventListener("keydown", (event) => {
-        const options = filteredTagOptions();
-        if (event.key === "Enter" || event.key === "Tab") {
-            if (activeIndex >= 0 && options[activeIndex]) {
-                event.preventDefault();
-                addTag(options[activeIndex]);
-            } else if (tagEntryInput.value.trim()) {
-                event.preventDefault();
-                commit();
-            }
-            return;
-        }
-        if (event.key === "Backspace" && !tagEntryInput.value && selectedTags.length > 0) {
-            selectedTags.pop();
-            renderChips();
-            render();
-            return;
-        }
-        if (event.key === "ArrowDown") {
+        if (event.key === "Enter") {
             event.preventDefault();
-            open();
-            activeIndex = options.length === 0 ? -1 : Math.min(activeIndex + 1, options.length - 1);
-            render();
-            return;
-        }
-        if (event.key === "ArrowUp") {
-            event.preventDefault();
-            open();
-            activeIndex = options.length === 0 ? -1 : Math.max(activeIndex - 1, 0);
-            render();
+            commit();
             return;
         }
         if (event.key === "Escape") {
             close();
         }
     });
-    tagToggle.addEventListener("pointerdown", preventBlur);
-    tagToggle.addEventListener("click", () => {
-        if (tagMenu.classList.contains("open")) {
-            close();
-        } else {
-            tagEntryInput.focus();
-            open(true);
-        }
-    });
-    tagClear.addEventListener("pointerdown", preventBlur);
-    tagClear.addEventListener("click", () => {
-        selectedTags = [];
-        tagEntryInput.value = "";
-        renderChips();
-        open(true);
+    tagCreateButton.addEventListener("pointerdown", preventBlur);
+    tagCreateButton.addEventListener("click", () => {
+        commit();
         tagEntryInput.focus();
     });
 
-    function open(showAll = false) {
-        if (showAll) {
-            activeIndex = -1;
-        }
-        render(showAll);
+    function open() {
+        render();
         tagMenu.classList.add("open");
-        tagEntryInput.setAttribute("aria-expanded", "true");
+        tagPickerButton.setAttribute("aria-expanded", "true");
+        setTimeout(() => tagEntryInput.focus(), 0);
     }
 
     function close() {
         tagMenu.classList.remove("open");
-        tagEntryInput.setAttribute("aria-expanded", "false");
-        activeIndex = -1;
+        tagPickerButton.setAttribute("aria-expanded", "false");
     }
 
-    function render(showAll = false) {
-        const options = filteredTagOptions(showAll);
-        tagMenu.innerHTML = "";
+    function render() {
+        renderChips();
+        renderOptions();
+        renderSummary();
+        syncTagsInput();
+    }
+
+    function renderOptions() {
+        const options = filteredTagOptions();
+        tagOptionList.innerHTML = "";
         if (options.length === 0) {
             const empty = document.createElement("div");
-            empty.className = "combo-empty";
-            empty.textContent = "无匹配项";
-            tagMenu.append(empty);
+            empty.className = "tag-option-empty";
+            empty.textContent = optionState.tags.length === selectedTags.length ? "已有标签已全部选中" : "暂无匹配标签";
+            tagOptionList.append(empty);
             return;
         }
-        options.forEach((option, index) => {
+        options.forEach((option) => {
             const button = document.createElement("button");
             button.type = "button";
-            button.className = `combo-option${index === activeIndex ? " active" : ""}`;
-            button.role = "option";
+            button.className = "tag-option";
             button.textContent = option;
             button.addEventListener("pointerdown", preventBlur);
             button.addEventListener("click", () => addTag(option));
-            tagMenu.append(button);
+            tagOptionList.append(button);
         });
     }
 
@@ -587,15 +582,14 @@ function createTagCombo() {
             selectedTags.push(tag);
         }
         tagEntryInput.value = "";
-        renderChips();
-        render(true);
+        render();
         tagEntryInput.focus();
     }
 
     function commit() {
         splitTags(tagEntryInput.value).forEach(addTag);
         tagEntryInput.value = "";
-        renderChips();
+        render();
     }
 
     function consumeDelimitedTags() {
@@ -611,6 +605,14 @@ function createTagCombo() {
 
     function renderChips() {
         tagChipList.querySelectorAll(".tag-chip").forEach((chip) => chip.remove());
+        tagChipList.querySelectorAll(".tag-empty-hint").forEach((hint) => hint.remove());
+        if (selectedTags.length === 0) {
+            const hint = document.createElement("span");
+            hint.className = "tag-empty-hint";
+            hint.textContent = "还没有选择标签";
+            tagChipList.append(hint);
+            return;
+        }
         selectedTags.forEach((tag) => {
             const chip = document.createElement("span");
             chip.className = "tag-chip";
@@ -618,25 +620,36 @@ function createTagCombo() {
             const remove = document.createElement("button");
             remove.type = "button";
             remove.setAttribute("aria-label", `移除${tag}`);
-            remove.textContent = "×";
             remove.addEventListener("click", () => {
                 selectedTags = selectedTags.filter((item) => item !== tag);
                 renderChips();
                 render();
             });
             chip.append(remove);
-            tagChipList.insertBefore(chip, tagEntryInput);
+            tagChipList.append(chip);
         });
-        syncTagsInput();
     }
 
-    function filteredTagOptions(showAll = false) {
-        const query = showAll ? "" : tagEntryInput.value.trim().toLowerCase();
+    function renderSummary() {
+        if (selectedTags.length === 0) {
+            tagPickerSummary.textContent = "选择或新建标签";
+            tagPickerButton.classList.remove("has-tags");
+            return;
+        }
+        tagPickerSummary.textContent = selectedTags.length <= 2
+            ? selectedTags.join("、")
+            : `${selectedTags.slice(0, 2).join("、")} 等 ${selectedTags.length} 个标签`;
+        tagPickerButton.classList.add("has-tags");
+    }
+
+    function filteredTagOptions() {
+        const query = tagEntryInput.value.trim().toLowerCase();
         return optionState.tags
             .filter((option) => !selectedTags.some((tag) => tag.toLowerCase() === option.toLowerCase()))
             .filter((option) => option.toLowerCase().includes(query));
     }
 
+    render();
     return { close, commit, render };
 }
 

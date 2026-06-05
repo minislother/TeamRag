@@ -44,7 +44,7 @@ public class RagQAService {
         // 查询重写只用于检索，不改变用户问题本身；这样能提高 Pinecone 的召回质量。
         String rewrittenQuery = queryRewriteService.rewrite(query, shortMemory);
 
-        // 长期记忆是用户或团队长期沉淀的信息，示例代码没有实现，这里作为项目扩展保留。
+        // 长期记忆是用户或团队长期沉淀的信息。
         List<RetrievedSegment> longMemory = longTermMemoryService.recall(rewrittenQuery);
 
         // RAG 的“检索”步骤：用改写后的问题去 Pinecone 做 BM25 + 向量混合检索。

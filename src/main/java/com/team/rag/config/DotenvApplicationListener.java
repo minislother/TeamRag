@@ -13,9 +13,6 @@ import java.util.Map;
 
 /**
  * 轻量 .env 加载器。
- *
- * <p>项目需要复用 RepoPilot 原来的 .env，所以这里在 Spring 解析配置前把项目根目录
- * 的 .env 注入 Environment。解析器会处理 UTF-8 BOM、注释、export 前缀和简单引号。</p>
  */
 public class DotenvApplicationListener implements ApplicationListener<ApplicationEnvironmentPreparedEvent> {
 

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>团队 RAG 知识库</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/styles.css?v=20260606-admin2">
 </head>
 <body>
 <main class="app-shell">
@@ -30,8 +30,8 @@
                         <input id="docTypeInput" name="docType" type="text" placeholder="文档类型"
                                autocomplete="off" role="combobox" aria-expanded="false"
                                aria-controls="docTypeMenu">
-                        <button class="icon-button combo-clear" id="docTypeClear" type="button" aria-label="清空文档类型">×</button>
-                        <button class="icon-button combo-toggle" id="docTypeToggle" type="button" aria-label="展开文档类型选项">⌄</button>
+                        <button class="icon-button combo-clear" id="docTypeClear" type="button" aria-label="清空文档类型"></button>
+                        <button class="icon-button combo-toggle" id="docTypeToggle" type="button" aria-label="展开文档类型选项"></button>
                         <div id="docTypeMenu" class="combo-menu" role="listbox"></div>
                     </div>
                 </label>
@@ -41,8 +41,8 @@
                         <input id="projectInput" name="project" type="text" placeholder="项目"
                                autocomplete="off" role="combobox" aria-expanded="false"
                                aria-controls="projectMenu">
-                        <button class="icon-button combo-clear" id="projectClear" type="button" aria-label="清空项目">×</button>
-                        <button class="icon-button combo-toggle" id="projectToggle" type="button" aria-label="展开项目选项">⌄</button>
+                        <button class="icon-button combo-clear" id="projectClear" type="button" aria-label="清空项目"></button>
+                        <button class="icon-button combo-toggle" id="projectToggle" type="button" aria-label="展开项目选项"></button>
                         <div id="projectMenu" class="combo-menu" role="listbox"></div>
                     </div>
                 </label>
@@ -50,15 +50,30 @@
 
             <label>
                 <span>标签 <em>可选</em></span>
-                <div class="tag-combo" data-combo="tags">
-                    <div id="tagChipList" class="tag-chip-list">
-                        <input id="tagEntryInput" type="text" placeholder="标签"
-                               autocomplete="off" role="combobox" aria-expanded="false"
-                               aria-controls="tagMenu">
+                <div class="tag-picker" data-combo="tags">
+                    <button id="tagPickerButton" class="tag-picker-trigger" type="button"
+                            aria-expanded="false" aria-controls="tagMenu">
+                        <span id="tagPickerSummary" class="tag-picker-summary">选择或新建标签</span>
+                        <span class="combo-toggle-icon" aria-hidden="true"></span>
+                    </button>
+                    <div id="tagMenu" class="tag-panel" role="dialog" aria-label="选择或新建标签">
+                        <section class="tag-panel-section">
+                            <div class="tag-panel-title">已选标签</div>
+                            <div id="tagChipList" class="tag-chip-list"></div>
+                        </section>
+                        <section class="tag-panel-section">
+                            <div class="tag-panel-title">新建标签</div>
+                            <div class="tag-create-row">
+                                <input id="tagEntryInput" type="text" placeholder="输入标签名，例如：缓存"
+                                       autocomplete="off">
+                                <button id="tagCreateButton" class="tag-create-button" type="button">新建</button>
+                            </div>
+                        </section>
+                        <section class="tag-panel-section">
+                            <div class="tag-panel-title">已有标签</div>
+                            <div id="tagOptionList" class="tag-option-list"></div>
+                        </section>
                     </div>
-                    <button class="icon-button combo-clear" id="tagClear" type="button" aria-label="清空标签">×</button>
-                    <button class="icon-button combo-toggle" id="tagToggle" type="button" aria-label="展开标签选项">⌄</button>
-                    <div id="tagMenu" class="combo-menu" role="listbox"></div>
                     <input id="tagsInput" name="tags" type="hidden">
                 </div>
             </label>
@@ -81,11 +96,25 @@
         <div class="settings-block">
             <h2>会话设置</h2>
             <label>
-                <span>会话 ID</span>
+                <span class="label-with-tip">
+                    会话 ID
+                    <span class="tooltip" tabindex="0" role="button"
+                          aria-label="同一 ID 会保留连续追问的上下文；换一个 ID 就相当于开启新会话。"
+                          data-tooltip="同一 ID 会保留连续追问的上下文；换一个 ID 就相当于开启新会话。">
+                        <span class="tooltip-icon" aria-hidden="true">i</span>
+                    </span>
+                </span>
                 <input id="conversationInput" type="text" value="1" autocomplete="off">
             </label>
             <label>
-                <span>召回数量</span>
+                <span class="label-with-tip">
+                    召回数量
+                    <span class="tooltip" tabindex="0" role="button"
+                          aria-label="每次提问最多从知识库取多少个相关片段；默认 6，复杂问题可适当调大。"
+                          data-tooltip="每次提问最多从知识库取多少个相关片段；默认 6，复杂问题可适当调大。">
+                        <span class="tooltip-icon" aria-hidden="true">i</span>
+                    </span>
+                </span>
                 <input id="topKInput" type="number" value="6" min="1" max="20">
             </label>
         </div>
@@ -138,6 +167,6 @@
     </section>
 </main>
 
-<script src="/app.js"></script>
+<script src="/app.js?v=20260606-admin2"></script>
 </body>
 </html>

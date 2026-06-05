@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>团队 RAG 知识库</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<main class="app-shell">
+    <aside class="knowledge-panel" aria-label="文档入库">
+        <div class="brand-row">
+            <div class="brand-mark">RAG</div>
+            <div>
+                <h1>团队知识库</h1>
+                <p>文档入库与问答</p>
+            </div>
+        </div>
+
+        <form id="uploadForm" class="upload-form">
+            <label class="field-label" for="documentFile">资料文件 <strong class="required-mark">*</strong></label>
+            <input id="documentFile" name="file" type="file" class="file-input"
+                   accept=".txt,.md,.pdf,.doc,.docx,.html,.htm" required>
+
+            <div class="form-grid">
+                <label>
+                    <span>文档类型 <em>可选</em></span>
+                    <div class="combo" data-combo="docType">
+                        <input id="docTypeInput" name="docType" type="text" placeholder="文档类型"
+                               autocomplete="off" role="combobox" aria-expanded="false"
+                               aria-controls="docTypeMenu">
+                        <button class="icon-button combo-clear" id="docTypeClear" type="button" aria-label="清空文档类型">×</button>
+                        <button class="icon-button combo-toggle" id="docTypeToggle" type="button" aria-label="展开文档类型选项">⌄</button>
+                        <div id="docTypeMenu" class="combo-menu" role="listbox"></div>
+                    </div>
+                </label>
+                <label>
+                    <span>项目 <em>可选</em></span>
+                    <div class="combo" data-combo="project">
+                        <input id="projectInput" name="project" type="text" placeholder="项目"
+                               autocomplete="off" role="combobox" aria-expanded="false"
+                               aria-controls="projectMenu">
+                        <button class="icon-button combo-clear" id="projectClear" type="button" aria-label="清空项目">×</button>
+                        <button class="icon-button combo-toggle" id="projectToggle" type="button" aria-label="展开项目选项">⌄</button>
+                        <div id="projectMenu" class="combo-menu" role="listbox"></div>
+                    </div>
+                </label>
+            </div>
+
+            <label>
+                <span>标签 <em>可选</em></span>
+                <div class="tag-combo" data-combo="tags">
+                    <div id="tagChipList" class="tag-chip-list">
+                        <input id="tagEntryInput" type="text" placeholder="标签"
+                               autocomplete="off" role="combobox" aria-expanded="false"
+                               aria-controls="tagMenu">
+                    </div>
+                    <button class="icon-button combo-clear" id="tagClear" type="button" aria-label="清空标签">×</button>
+                    <button class="icon-button combo-toggle" id="tagToggle" type="button" aria-label="展开标签选项">⌄</button>
+                    <div id="tagMenu" class="combo-menu" role="listbox"></div>
+                    <input id="tagsInput" name="tags" type="hidden">
+                </div>
+            </label>
+
+            <label>
+                <span>说明 <em>可选</em></span>
+                <textarea name="description" rows="3" placeholder="简单描述这份资料的用途"></textarea>
+            </label>
+
+            <button class="primary-button" type="submit">
+                <span class="button-icon" aria-hidden="true">↑</span>
+                上传入库
+            </button>
+        </form>
+
+        <div id="uploadStatus" class="status-box" role="status" aria-live="polite">
+            等待上传资料
+        </div>
+
+        <div class="settings-block">
+            <h2>会话设置</h2>
+            <label>
+                <span>会话 ID</span>
+                <input id="conversationInput" type="text" value="default" autocomplete="off">
+            </label>
+            <label>
+                <span>召回数量</span>
+                <input id="topKInput" type="number" value="6" min="1" max="20">
+            </label>
+        </div>
+    </aside>
+
+    <section class="chat-panel" aria-label="RAG 问答">
+        <header class="chat-header">
+            <div>
+                <h2>问答</h2>
+                <div id="runtimeInfo" class="model-strip" aria-label="当前模型配置">
+                    <span class="model-pill">
+                        <span class="model-label">Embedding</span>
+                        <strong>text-embedding-v3</strong>
+                    </span>
+                    <span class="model-pill accent">
+                        <span class="model-label">Chat</span>
+                        <strong>glm-5</strong>
+                    </span>
+                </div>
+            </div>
+            <button id="clearButton" class="secondary-button" type="button">
+                <span class="button-icon" aria-hidden="true">×</span>
+                清空
+            </button>
+        </header>
+
+        <div id="messageList" class="message-list" aria-live="polite">
+            <article class="message assistant">
+                <div class="message-avatar">AI</div>
+                <div class="message-content">
+                    <p>你可以先上传团队资料，再直接用自然语言提问。</p>
+                </div>
+            </article>
+        </div>
+
+        <form id="chatForm" class="chat-composer">
+            <label class="sr-only" for="questionInput">问题</label>
+            <textarea id="questionInput" rows="2" placeholder="输入你的问题"></textarea>
+            <div class="composer-actions">
+                <button id="stopButton" class="secondary-button" type="button" disabled>
+                    <span class="button-icon" aria-hidden="true">■</span>
+                    停止
+                </button>
+                <button id="sendButton" class="primary-button" type="submit">
+                    <span class="button-icon" aria-hidden="true">→</span>
+                    发送
+                </button>
+            </div>
+        </form>
+    </section>
+</main>
+
+<script src="/app.js"></script>
+</body>
+</html>

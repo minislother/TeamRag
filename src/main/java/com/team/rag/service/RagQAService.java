@@ -1,6 +1,7 @@
 package com.team.rag.service;
 
 import com.team.rag.bean.ChatMessage;
+import com.team.rag.bean.DocumentStatus;
 import com.team.rag.bean.RagQo;
 import com.team.rag.bean.RetrievedSegment;
 import com.team.rag.client.DashScopeClient;
@@ -13,7 +14,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * RAG 问答服务：短期记忆 + 查询重写 + 长期记忆 + Pinecone 混合检索 + Prompt 增强 + 大模型流式回答。
@@ -51,7 +54,8 @@ public class RagQAService {
         List<RetrievedSegment> ragSegments = bm25Retriever.retrieve(
                 rewrittenQuery,
                 qo.getTopK(),
-                properties.getPinecone().getNamespace()
+                properties.getPinecone().getNamespace(),
+                activeDocumentFilter(qo)
         );
 
         // 只有真正检索到可用文本时才构造 RAG Prompt；无命中时走示例代码的通用大模型兜底。
@@ -80,5 +84,17 @@ public class RagQAService {
             return String.valueOf(qo.getMemoryId());
         }
         return "1";
+    }
+
+    /**
+     * 生产检索默认只召回 ACTIVE 文档版本，避免旧版本、失败版本或删除文档进入 Prompt。
+     */
+    private Map<String, Object> activeDocumentFilter(RagQo qo) {
+        Map<String, Object> filter = new LinkedHashMap<>();
+        filter.put("status", Map.of("$eq", DocumentStatus.ACTIVE.name()));
+        if (StringUtils.hasText(qo.getProject())) {
+            filter.put("project", Map.of("$eq", qo.getProject().trim()));
+        }
+        return filter;
     }
 }

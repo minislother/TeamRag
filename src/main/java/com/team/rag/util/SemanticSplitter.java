@@ -12,7 +12,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * 语义分块工具。
@@ -145,8 +144,11 @@ public class SemanticSplitter {
             metadata.put("documentId", documentId);
             metadata.put("segmentIndex", i);
             metadata.put("text", segments.get(i));
+            String version = String.valueOf(metadata.getOrDefault("version", "1"));
+            String vectorId = "doc:" + documentId + ":" + version + ":" + i;
+            metadata.put("vectorId", vectorId);
             result.add(DocumentSegment.builder()
-                    .id(documentId + "-" + i + "-" + UUID.randomUUID())
+                    .id(vectorId)
                     .documentId(documentId)
                     .index(i)
                     .text(segments.get(i))

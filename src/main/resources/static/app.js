@@ -1,5 +1,11 @@
 const uploadForm = document.querySelector("#uploadForm");
 const uploadStatus = document.querySelector("#uploadStatus");
+const documentIdInput = document.querySelector("#documentIdInput");
+const updateTarget = document.querySelector("#updateTarget");
+const updateTargetText = document.querySelector("#updateTargetText");
+const clearUpdateTargetButton = document.querySelector("#clearUpdateTargetButton");
+const documentList = document.querySelector("#documentList");
+const refreshDocumentsButton = document.querySelector("#refreshDocumentsButton");
 const chatForm = document.querySelector("#chatForm");
 const questionInput = document.querySelector("#questionInput");
 const messageList = document.querySelector("#messageList");
@@ -26,6 +32,7 @@ const docTypeClear = document.querySelector("#docTypeClear");
 const projectClear = document.querySelector("#projectClear");
 
 let activeController = null;
+let uploadPollTimer = null;
 let selectedTags = [];
 
 const storage = {
@@ -69,6 +76,7 @@ loadSettings();
 loadOptionHistory();
 projectInput.value = "";
 syncTagsInput();
+loadDocumentList();
 
 uploadForm.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -80,7 +88,7 @@ uploadForm.addEventListener("submit", async (event) => {
         return;
     }
 
-    setUploadStatus("正在解析并写入 Pinecone...", "");
+    setUploadStatus("正在提交入库任务...", "");
     uploadForm.querySelector("button[type='submit']").disabled = true;
     try {
         const response = await fetch("/api/document/upload", {
@@ -91,17 +99,23 @@ uploadForm.addEventListener("submit", async (event) => {
         if (!response.ok) {
             throw new Error(payload.message || payload || "上传失败");
         }
-        setUploadStatus(
-            `已入库：${payload.filename || file.name}\n文档 ID：${payload.documentId || "-"}\n片段数：${payload.segmentCount ?? "-"}`,
-            "ok"
-        );
+        setUploadStatus(formatUploadResponse(payload, file.name), payload.status === "ACTIVE" ? "ok" : "");
         rememberUploadOptions(formData);
+        if (payload.jobId) {
+            pollIngestionJob(payload.jobId);
+        }
+        clearUpdateTarget();
+        loadDocumentList();
     } catch (error) {
         setUploadStatus(error.message, "error");
     } finally {
         uploadForm.querySelector("button[type='submit']").disabled = false;
     }
 });
+
+refreshDocumentsButton.addEventListener("click", loadDocumentList);
+
+clearUpdateTargetButton.addEventListener("click", clearUpdateTarget);
 
 chatForm.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -280,6 +294,144 @@ function addMessage(role, text) {
 function setUploadStatus(text, state) {
     uploadStatus.textContent = text;
     uploadStatus.className = `status-box${state ? ` ${state}` : ""}`;
+}
+
+async function pollIngestionJob(jobId) {
+    clearTimeout(uploadPollTimer);
+    try {
+        const response = await fetch(`/api/document/jobs/${encodeURIComponent(jobId)}`);
+        const payload = await readJsonOrText(response);
+        if (!response.ok) {
+            throw new Error(payload.message || payload || "查询入库任务失败");
+        }
+        setUploadStatus(formatJobStatus(payload), payload.status === "SUCCESS" ? "ok" : payload.status === "FAILED" ? "error" : "");
+        await loadDocumentList();
+        if (payload.status === "PENDING" || payload.status === "RUNNING") {
+            uploadPollTimer = setTimeout(() => pollIngestionJob(jobId), 1800);
+        }
+    } catch (error) {
+        setUploadStatus(error.message, "error");
+    }
+}
+
+async function loadDocumentList() {
+    try {
+        const response = await fetch("/api/document");
+        const payload = await readJsonOrText(response);
+        if (!response.ok) {
+            throw new Error(payload.message || payload || "查询文档状态失败");
+        }
+        renderDocumentList(Array.isArray(payload) ? payload : []);
+    } catch (error) {
+        documentList.innerHTML = "";
+        const item = document.createElement("div");
+        item.className = "empty-state error";
+        item.textContent = error.message;
+        documentList.append(item);
+    }
+}
+
+function renderDocumentList(documents) {
+    documentList.innerHTML = "";
+    if (documents.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "empty-state";
+        empty.textContent = "暂无入库文档";
+        documentList.append(empty);
+        return;
+    }
+    documents.slice(0, 8).forEach((item) => {
+        const card = document.createElement("article");
+        card.className = "document-item";
+
+        const titleRow = document.createElement("div");
+        titleRow.className = "document-title-row";
+        const title = document.createElement("strong");
+        title.textContent = item.filename || "未命名文档";
+        const status = document.createElement("span");
+        status.className = `status-pill ${statusClass(item.status)}`;
+        status.textContent = statusText(item.status);
+        titleRow.append(title, status);
+
+        const meta = document.createElement("div");
+        meta.className = "document-meta";
+        meta.textContent = [
+            item.docType || "未分类",
+            item.project || "未指定项目",
+            item.currentVersion ? `v${item.currentVersion}` : "处理中"
+        ].join(" · ");
+
+        const action = document.createElement("button");
+        action.type = "button";
+        action.className = "text-button";
+        action.textContent = "上传新版本";
+        action.addEventListener("click", () => setUpdateTarget(item));
+
+        card.append(titleRow, meta, action);
+        documentList.append(card);
+    });
+}
+
+function setUpdateTarget(item) {
+    documentIdInput.value = item.documentId || "";
+    updateTargetText.textContent = `将为「${item.filename || item.documentId}」上传新版本`;
+    updateTarget.hidden = false;
+}
+
+function clearUpdateTarget() {
+    documentIdInput.value = "";
+    updateTargetText.textContent = "";
+    updateTarget.hidden = true;
+}
+
+function formatUploadResponse(payload, fallbackFilename) {
+    return [
+        payload.message || "文档已提交入库任务",
+        `文档：${payload.filename || fallbackFilename}`,
+        `文档 ID：${payload.documentId || "-"}`,
+        `版本：${payload.version || "-"}`,
+        `状态：${statusText(payload.status)}`
+    ].join("\n");
+}
+
+function formatJobStatus(payload) {
+    const lines = [
+        `入库任务：${statusText(payload.status)}`,
+        `文档 ID：${payload.documentId || "-"}`,
+        `版本：${payload.version || "-"}`,
+        `进度：${payload.progress ?? 0}%`
+    ];
+    if (payload.errorMessage) {
+        lines.push(`失败原因：${payload.errorMessage}`);
+    }
+    return lines.join("\n");
+}
+
+function statusText(status) {
+    const labels = {
+        PENDING: "等待处理",
+        RUNNING: "处理中",
+        PROCESSING: "处理中",
+        SUCCESS: "已入库",
+        ACTIVE: "已入库",
+        SUPERSEDED: "已被替代",
+        FAILED: "失败",
+        DELETED: "已删除"
+    };
+    return labels[status] || status || "-";
+}
+
+function statusClass(status) {
+    if (status === "ACTIVE" || status === "SUCCESS") {
+        return "success";
+    }
+    if (status === "FAILED") {
+        return "failed";
+    }
+    if (status === "PROCESSING" || status === "PENDING" || status === "RUNNING") {
+        return "running";
+    }
+    return "";
 }
 
 function setChatBusy(isBusy) {

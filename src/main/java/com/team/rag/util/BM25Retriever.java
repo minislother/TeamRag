@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * BM25 + 向量混合检索工具。
@@ -31,6 +32,13 @@ public class BM25Retriever {
      * 执行混合检索。
      */
     public List<RetrievedSegment> retrieve(String query, Integer topK, String namespace) {
+        return retrieve(query, topK, namespace, Map.of());
+    }
+
+    /**
+     * 执行带 metadata filter 的混合检索。
+     */
+    public List<RetrievedSegment> retrieve(String query, Integer topK, String namespace, Map<String, Object> filter) {
         int limit = topK == null || topK <= 0 ? properties.getHybrid().getTopK() : topK;
         // sparseVector 类似“关键词指纹”，用于 BM25/稀疏检索。
         SparseVector sparseVector = sparseEncoder.encode(query);
@@ -43,7 +51,8 @@ public class BM25Retriever {
                 sparseVector,
                 limit,
                 properties.getHybrid().getAlpha(),
-                properties.getHybrid().getMinScore()
+                properties.getHybrid().getMinScore(),
+                filter
         );
         log.info("混合检索完成，query={}, topK={}, hits={}", query, limit, segments.size());
         return segments;

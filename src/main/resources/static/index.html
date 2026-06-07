@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>团队 RAG 知识库</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/styles.css?v=20260606-admin2">
+    <link rel="stylesheet" href="/styles.css?v=20260607-lifecycle1">
 </head>
 <body>
 <main class="app-shell">
@@ -22,6 +22,11 @@
             <label class="field-label" for="documentFile">资料文件 <strong class="required-mark">*</strong></label>
             <input id="documentFile" name="file" type="file" class="file-input"
                    accept=".txt,.md,.pdf,.doc,.docx,.html,.htm" required>
+            <input id="documentIdInput" name="documentId" type="hidden">
+            <div id="updateTarget" class="update-target" hidden>
+                <span id="updateTargetText"></span>
+                <button id="clearUpdateTargetButton" type="button">取消</button>
+            </div>
 
             <div class="form-grid">
                 <label>
@@ -92,6 +97,16 @@
         <div id="uploadStatus" class="status-box" role="status" aria-live="polite">
             等待上传资料
         </div>
+
+        <section class="documents-block" aria-label="文档状态">
+            <div class="section-heading">
+                <h2>文档状态</h2>
+                <button id="refreshDocumentsButton" class="text-button" type="button">刷新</button>
+            </div>
+            <div id="documentList" class="document-list">
+                <div class="empty-state">暂无入库文档</div>
+            </div>
+        </section>
 
         <div class="settings-block">
             <h2>会话设置</h2>
@@ -167,6 +182,6 @@
     </section>
 </main>
 
-<script src="/app.js?v=20260606-admin2"></script>
+<script src="/app.js?v=20260607-lifecycle1"></script>
 </body>
 </html>

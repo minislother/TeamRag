@@ -698,6 +698,135 @@ textarea:focus {
     color: var(--danger);
 }
 
+.update-target {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    border: 1px solid var(--accent-line);
+    border-radius: 6px;
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+    padding: 8px 10px;
+    font-size: 13px;
+}
+
+.update-target button,
+.text-button {
+    border: 0;
+    background: transparent;
+    color: var(--accent-strong);
+    font-size: 13px;
+    font-weight: 700;
+    padding: 0;
+}
+
+.update-target button:hover,
+.text-button:hover {
+    color: var(--accent);
+    text-decoration: underline;
+}
+
+.documents-block {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line-soft);
+}
+
+.section-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.section-heading h2 {
+    color: var(--ink);
+    font-size: 14px;
+}
+
+.document-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.document-item {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #ffffff;
+    padding: 10px;
+}
+
+.document-title-row {
+    display: flex;
+    align-items: start;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.document-title-row strong {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--ink);
+    font-size: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.document-meta,
+.empty-state {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.empty-state {
+    border: 1px dashed var(--line);
+    border-radius: 6px;
+    padding: 10px;
+}
+
+.empty-state.error {
+    border-color: #ffb1a7;
+    color: var(--danger);
+}
+
+.status-pill {
+    flex: 0 0 auto;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: #f6f8fa;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+    padding: 4px 7px;
+}
+
+.status-pill.success {
+    border-color: #aceebb;
+    background: #dafbe1;
+    color: #116329;
+}
+
+.status-pill.running {
+    border-color: var(--accent-line);
+    background: var(--accent-soft);
+    color: var(--accent-strong);
+}
+
+.status-pill.failed {
+    border-color: #ffb1a7;
+    background: #fff1f0;
+    color: var(--danger);
+}
+
 .chat-panel {
     display: grid;
     grid-template-rows: auto minmax(0, 1fr) auto;

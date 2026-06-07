@@ -73,12 +73,22 @@ public class PineconeClient {
      * 混合检索：dense vector 负责语义召回，sparse vector 负责关键词/BM25 召回。
      */
     public List<RetrievedSegment> query(String namespace, float[] denseVector, SparseVector sparseVector, int topK, double alpha, double minScore) {
+        return query(namespace, denseVector, sparseVector, topK, alpha, minScore, Map.of());
+    }
+
+    /**
+     * 带 metadata filter 的混合检索。
+     */
+    public List<RetrievedSegment> query(String namespace, float[] denseVector, SparseVector sparseVector, int topK, double alpha, double minScore, Map<String, Object> filter) {
         requireConfig();
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("namespace", namespace);
         payload.put("topK", topK);
         payload.put("includeMetadata", true);
         payload.put("vector", scaleDense(denseVector, alpha));
+        if (filter != null && !filter.isEmpty()) {
+            payload.put("filter", filter);
+        }
         if (sparseVector != null && !sparseVector.getIndices().isEmpty()) {
             payload.put("sparseVector", Map.of(
                     "indices", sparseVector.getIndices(),
@@ -115,6 +125,28 @@ public class PineconeClient {
                     .build());
         }
         return result;
+    }
+
+    /**
+     * 按向量 ID 删除旧版本文档片段。
+     */
+    public void deleteByIds(String namespace, List<String> ids) {
+        requireConfig();
+        if (ids == null || ids.isEmpty()) {
+            return;
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("namespace", namespace);
+        payload.put("ids", ids);
+
+        webClient.post()
+                .uri(dataPlaneUrl() + "/vectors/delete")
+                .headers(headers -> headers.add("Api-Key", properties.getPinecone().getApiKey()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(payload)
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .block();
     }
 
     /**

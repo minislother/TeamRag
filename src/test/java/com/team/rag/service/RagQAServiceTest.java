@@ -21,6 +21,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -65,7 +66,7 @@ class RagQAServiceTest {
         when(shortTermMemoryService.getRecentMessages("demo")).thenReturn(List.of());
         when(queryRewriteService.rewrite(qo.getQuery(), List.of())).thenReturn(qo.getQuery());
         when(longTermMemoryService.recall(qo.getQuery())).thenReturn(List.of());
-        when(bm25Retriever.retrieve(qo.getQuery(), null, properties.getPinecone().getNamespace())).thenReturn(List.of());
+        when(bm25Retriever.retrieve(eq(qo.getQuery()), isNull(), eq(properties.getPinecone().getNamespace()), org.mockito.ArgumentMatchers.anyMap())).thenReturn(List.of());
         ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
         when(dashScopeClient.stream(promptCaptor.capture())).thenReturn(Flux.just("可以缓存空值、使用布隆过滤器或做参数校验。"));
 
@@ -100,7 +101,7 @@ class RagQAServiceTest {
         when(shortTermMemoryService.getRecentMessages("demo")).thenReturn(List.of());
         when(queryRewriteService.rewrite(qo.getQuery(), List.of())).thenReturn(qo.getQuery());
         when(longTermMemoryService.recall(qo.getQuery())).thenReturn(List.of());
-        when(bm25Retriever.retrieve(qo.getQuery(), null, properties.getPinecone().getNamespace())).thenReturn(List.of(segment));
+        when(bm25Retriever.retrieve(eq(qo.getQuery()), isNull(), eq(properties.getPinecone().getNamespace()), org.mockito.ArgumentMatchers.anyMap())).thenReturn(List.of(segment));
         ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
         when(dashScopeClient.stream(promptCaptor.capture())).thenReturn(Flux.just("根据知识库，缓存穿透可以通过缓存空值、布隆过滤器、参数校验解决。"));
 
@@ -130,7 +131,7 @@ class RagQAServiceTest {
         when(shortTermMemoryService.getRecentMessages("1")).thenReturn(List.of());
         when(queryRewriteService.rewrite(qo.getQuery(), List.of())).thenReturn(qo.getQuery());
         when(longTermMemoryService.recall(qo.getQuery())).thenReturn(List.of());
-        when(bm25Retriever.retrieve(qo.getQuery(), null, properties.getPinecone().getNamespace())).thenReturn(List.of());
+        when(bm25Retriever.retrieve(eq(qo.getQuery()), isNull(), eq(properties.getPinecone().getNamespace()), org.mockito.ArgumentMatchers.anyMap())).thenReturn(List.of());
         when(dashScopeClient.stream("请回答问题：Redis 是什么")).thenReturn(Flux.just("Redis 是内存数据库。"));
 
         // When & Then
@@ -143,5 +144,31 @@ class RagQAServiceTest {
                 eq(qo.getQuery()),
                 eq("Redis 是内存数据库。")
         );
+    }
+
+    @Test
+    @DisplayName("RAG 问答 - 检索时携带 ACTIVE 和项目过滤条件")
+    @SuppressWarnings("unchecked")
+    void testQa_WithProject_UseActiveFilter() {
+        // Given
+        RagQo qo = new RagQo();
+        qo.setQuery("Redis 是什么");
+        qo.setProject("infra");
+        when(shortTermMemoryService.getRecentMessages("1")).thenReturn(List.of());
+        when(queryRewriteService.rewrite(qo.getQuery(), List.of())).thenReturn(qo.getQuery());
+        when(longTermMemoryService.recall(qo.getQuery())).thenReturn(List.of());
+        ArgumentCaptor<Map<String, Object>> filterCaptor = ArgumentCaptor.forClass(Map.class);
+        when(bm25Retriever.retrieve(eq(qo.getQuery()), isNull(), eq(properties.getPinecone().getNamespace()), filterCaptor.capture()))
+                .thenReturn(List.of());
+        when(dashScopeClient.stream("请回答问题：Redis 是什么")).thenReturn(Flux.just("Redis 是内存数据库。"));
+
+        // When & Then
+        StepVerifier.create(ragQAService.qa(qo))
+                .expectNext("Redis 是内存数据库。")
+                .verifyComplete();
+
+        assertThat(filterCaptor.getValue())
+                .containsEntry("status", Map.of("$eq", "ACTIVE"))
+                .containsEntry("project", Map.of("$eq", "infra"));
     }
 }

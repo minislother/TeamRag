@@ -1,87 +1,126 @@
 package com.team.rag.service;
 
 import com.team.rag.bean.DocumentForm;
-import com.team.rag.bean.DocumentSegment;
+import com.team.rag.bean.DocumentStatus;
+import com.team.rag.bean.DocumentStatusResponse;
 import com.team.rag.bean.DocumentUploadResponse;
-import com.team.rag.bean.SparseVector;
-import com.team.rag.client.DashScopeClient;
-import com.team.rag.client.PineconeClient;
+import com.team.rag.bean.DocumentVersion;
+import com.team.rag.bean.DocumentVersionResponse;
+import com.team.rag.bean.IngestionJob;
+import com.team.rag.bean.IngestionJobResponse;
+import com.team.rag.bean.IngestionStatus;
+import com.team.rag.bean.RagDocument;
 import com.team.rag.config.RagProperties;
-import com.team.rag.util.BM25SparseEncoder;
-import com.team.rag.util.SemanticSplitter;
-import lombok.RequiredArgsConstructor;
+import com.team.rag.repository.DocumentLifecycleRepository;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.tika.Tika;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.InputStream;
 import java.time.OffsetDateTime;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 /**
- * 文档服务：上传、解析、语义分块、向量化、Pinecone 入库。
+ * 文档服务：负责接收上传、创建文档版本和异步入库任务。
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class DocumentService {
 
-    private final Tika tika;
-    private final SemanticSplitter semanticSplitter;
-    private final DashScopeClient dashScopeClient;
-    private final PineconeClient pineconeClient;
-    private final BM25SparseEncoder sparseEncoder;
+    private final DocumentStorageService storageService;
+    private final DocumentLifecycleRepository documentRepository;
+    private final DocumentIngestionService ingestionService;
+    private final TaskExecutor ingestionTaskExecutor;
     private final RagProperties properties;
 
+    public DocumentService(DocumentStorageService storageService,
+                           DocumentLifecycleRepository documentRepository,
+                           DocumentIngestionService ingestionService,
+                           @Qualifier("documentIngestionTaskExecutor") TaskExecutor ingestionTaskExecutor,
+                           RagProperties properties) {
+        this.storageService = storageService;
+        this.documentRepository = documentRepository;
+        this.ingestionService = ingestionService;
+        this.ingestionTaskExecutor = ingestionTaskExecutor;
+        this.properties = properties;
+    }
+
     /**
-     * 文档上传并入库向量库。
+     * 文档上传并提交后台入库任务。
      */
     public DocumentUploadResponse uploadAndStore(DocumentForm form) {
         MultipartFile file = form.getFile();
         validateFile(file);
         String originalFilename = file.getOriginalFilename() == null ? "unknown" : file.getOriginalFilename();
-        String documentId = UUID.randomUUID().toString();
-        try (InputStream inputStream = file.getInputStream()) {
-            // 第一步：把 PDF、Word、Markdown、TXT 等不同格式统一解析成纯文本。
-            String text = tika.parseToString(inputStream);
-            if (!StringUtils.hasText(text)) {
-                throw new IllegalArgumentException("文档未解析出有效文本");
-            }
-            // 第二步：给文档打上类型、项目、标签等元数据，后面检索和展示都会用到。
-            Map<String, Object> metadata = buildMetadata(form, documentId, originalFilename, file.getSize());
-            // 第三步：把长文档拆成语义块，避免整篇文档太长导致 embedding 或大模型上下文超限。
-            List<DocumentSegment> segments = semanticSplitter.split(documentId, text, metadata);
-            List<String> segmentTexts = segments.stream().map(DocumentSegment::getText).toList();
-            // 第四步：dense embedding 负责语义匹配，比如“缓存穿透”和“查不到数据一直打数据库”。
-            List<float[]> embeddings = dashScopeClient.embed(segmentTexts);
-            List<PineconeClient.VectorRecord> records = new ArrayList<>();
-            for (int i = 0; i < segments.size(); i++) {
-                DocumentSegment segment = segments.get(i);
-                // sparse vector 负责关键词匹配，能提高专有名词、命令、代码片段的召回效果。
-                SparseVector sparseVector = sparseEncoder.encode(segment.getText());
-                records.add(new PineconeClient.VectorRecord(segment.getId(), embeddings.get(i), sparseVector, segment.getMetadata()));
-            }
-            // 第五步：把原文片段、dense 向量、sparse 向量一起写入 Pinecone。
-            pineconeClient.upsert(properties.getPinecone().getNamespace(), records);
-            log.info("文档 {} 入库成功，生成 {} 个语义块", originalFilename, segments.size());
+        String documentId = resolveDocumentId(form);
+        RagDocument existing = documentRepository.findDocument(documentId).orElse(null);
+        int version = documentRepository.nextVersion(documentId);
+        StoredDocumentFile storedFile = storageService.store(file, documentId, version);
+
+        DocumentVersion unchangedVersion = findUnchangedActiveVersion(documentId, storedFile.fileHash());
+        if (unchangedVersion != null) {
+            storageService.deleteQuietly(storedFile);
             return DocumentUploadResponse.builder()
                     .documentId(documentId)
+                    .version(unchangedVersion.getVersion())
                     .filename(originalFilename)
-                    .docType(form.getDocType())
-                    .project(form.getProject())
-                    .segmentCount(segments.size())
-                    .message("文档上传并入库成功")
+                    .docType(resolveDocType(form, existing))
+                    .project(resolveProject(form, existing))
+                    .segmentCount(unchangedVersion.getSegmentCount())
+                    .status(DocumentStatus.ACTIVE.name())
+                    .message("文件内容未变化，已跳过重复入库")
                     .build();
-        } catch (Exception ex) {
-            log.error("文档处理失败: {}", originalFilename, ex);
-            throw new IllegalStateException("文档处理失败：" + ex.getMessage(), ex);
         }
+
+        RagDocument document = saveProcessingDocument(form, existing, documentId, originalFilename);
+        DocumentVersion documentVersion = saveProcessingVersion(documentId, version, storedFile);
+        IngestionJob job = savePendingJob(documentId, version);
+        ingestionTaskExecutor.execute(() -> ingestionService.ingest(job.getId()));
+        log.info("文档 {} 第 {} 版已提交后台入库任务 {}", originalFilename, version, job.getId());
+
+        return DocumentUploadResponse.builder()
+                .documentId(document.getId())
+                .jobId(job.getId())
+                .version(documentVersion.getVersion())
+                .filename(document.getFilename())
+                .docType(document.getDocType())
+                .project(document.getProject())
+                .segmentCount(0)
+                .status(job.getStatus().name())
+                .message("文档已提交入库任务，请稍后查看处理状态")
+                .build();
+    }
+
+    /**
+     * 查询所有文档的入库状态。
+     */
+    public List<DocumentStatusResponse> listDocuments() {
+        return documentRepository.findDocuments().stream()
+                .sorted(Comparator.comparing(RagDocument::getUpdatedAt).reversed())
+                .map(this::toStatusResponse)
+                .toList();
+    }
+
+    /**
+     * 查询单个文档的版本和任务状态。
+     */
+    public DocumentStatusResponse getDocument(String documentId) {
+        RagDocument document = documentRepository.findDocument(documentId)
+                .orElseThrow(() -> new IllegalArgumentException("文档不存在：" + documentId));
+        return toStatusResponse(document);
+    }
+
+    /**
+     * 查询单个入库任务状态。
+     */
+    public IngestionJobResponse getJob(String jobId) {
+        IngestionJob job = documentRepository.findJob(jobId)
+                .orElseThrow(() -> new IllegalArgumentException("入库任务不存在：" + jobId));
+        return toJobResponse(job);
     }
 
     /**
@@ -97,26 +136,131 @@ public class DocumentService {
         }
     }
 
-    /**
-     * 汇总文档元数据，供 Pinecone 过滤、展示和提示词引用使用。
-     */
-    private Map<String, Object> buildMetadata(DocumentForm form, String documentId, String filename, long size) {
-        Map<String, Object> metadata = new LinkedHashMap<>();
-        metadata.put("documentId", documentId);
-        metadata.put("filename", filename);
-        metadata.put("docType", safe(form.getDocType(), "未分类"));
-        metadata.put("project", safe(form.getProject(), ""));
-        metadata.put("tags", safe(form.getTags(), ""));
-        metadata.put("description", safe(form.getDescription(), ""));
-        metadata.put("size", size);
-        metadata.put("uploadedAt", OffsetDateTime.now().toString());
-        return metadata;
+    private String resolveDocumentId(DocumentForm form) {
+        if (StringUtils.hasText(form.getDocumentId())) {
+            String documentId = form.getDocumentId().trim();
+            documentRepository.findDocument(documentId)
+                    .orElseThrow(() -> new IllegalArgumentException("文档不存在，无法上传新版本：" + documentId));
+            return documentId;
+        }
+        return UUID.randomUUID().toString();
     }
 
-    /**
-     * 规范化可选表单字段，空值时回退到默认值。
-     */
-    private String safe(String value, String defaultValue) {
-        return StringUtils.hasText(value) ? value.trim() : defaultValue;
+    private RagDocument saveProcessingDocument(DocumentForm form, RagDocument existing, String documentId, String filename) {
+        OffsetDateTime now = OffsetDateTime.now();
+        RagDocument document = RagDocument.builder()
+                .id(documentId)
+                .filename(filename)
+                .docType(resolveDocType(form, existing))
+                .project(resolveProject(form, existing))
+                .tags(resolveTags(form, existing))
+                .description(resolveDescription(form, existing))
+                .currentVersion(existing == null ? null : existing.getCurrentVersion())
+                .status(DocumentStatus.PROCESSING)
+                .createdAt(existing == null ? now : existing.getCreatedAt())
+                .updatedAt(now)
+                .build();
+        return documentRepository.saveDocument(document);
+    }
+
+    private DocumentVersion saveProcessingVersion(String documentId, Integer version, StoredDocumentFile storedFile) {
+        OffsetDateTime now = OffsetDateTime.now();
+        return documentRepository.saveVersion(DocumentVersion.builder()
+                .id(documentId + ":" + version)
+                .documentId(documentId)
+                .version(version)
+                .fileHash(storedFile.fileHash())
+                .filePath(storedFile.path())
+                .status(DocumentStatus.PROCESSING)
+                .segmentCount(0)
+                .errorMessage("")
+                .createdAt(now)
+                .build());
+    }
+
+    private IngestionJob savePendingJob(String documentId, Integer version) {
+        OffsetDateTime now = OffsetDateTime.now();
+        return documentRepository.saveJob(IngestionJob.builder()
+                .id(UUID.randomUUID().toString())
+                .documentId(documentId)
+                .version(version)
+                .status(IngestionStatus.PENDING)
+                .progress(0)
+                .errorMessage("")
+                .retryCount(0)
+                .createdAt(now)
+                .updatedAt(now)
+                .build());
+    }
+
+    private DocumentVersion findUnchangedActiveVersion(String documentId, String fileHash) {
+        return documentRepository.findVersions(documentId).stream()
+                .filter(version -> version.getStatus() == DocumentStatus.ACTIVE)
+                .filter(version -> fileHash.equals(version.getFileHash()))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private String resolveDocType(DocumentForm form, RagDocument existing) {
+        return StringUtils.hasText(form.getDocType()) ? form.getDocType().trim() : existing == null ? "未分类" : existing.getDocType();
+    }
+
+    private String resolveProject(DocumentForm form, RagDocument existing) {
+        return StringUtils.hasText(form.getProject()) ? form.getProject().trim() : existing == null ? "" : existing.getProject();
+    }
+
+    private String resolveTags(DocumentForm form, RagDocument existing) {
+        return StringUtils.hasText(form.getTags()) ? form.getTags().trim() : existing == null ? "" : existing.getTags();
+    }
+
+    private String resolveDescription(DocumentForm form, RagDocument existing) {
+        return StringUtils.hasText(form.getDescription()) ? form.getDescription().trim() : existing == null ? "" : existing.getDescription();
+    }
+
+    private DocumentStatusResponse toStatusResponse(RagDocument document) {
+        return DocumentStatusResponse.builder()
+                .documentId(document.getId())
+                .filename(document.getFilename())
+                .docType(document.getDocType())
+                .project(document.getProject())
+                .tags(document.getTags())
+                .description(document.getDescription())
+                .currentVersion(document.getCurrentVersion())
+                .status(document.getStatus() == null ? "" : document.getStatus().name())
+                .createdAt(text(document.getCreatedAt()))
+                .updatedAt(text(document.getUpdatedAt()))
+                .versions(documentRepository.findVersions(document.getId()).stream().map(this::toVersionResponse).toList())
+                .jobs(documentRepository.findJobs(document.getId()).stream().map(this::toJobResponse).toList())
+                .build();
+    }
+
+    private DocumentVersionResponse toVersionResponse(DocumentVersion version) {
+        return DocumentVersionResponse.builder()
+                .version(version.getVersion())
+                .status(version.getStatus() == null ? "" : version.getStatus().name())
+                .segmentCount(version.getSegmentCount())
+                .fileHash(version.getFileHash())
+                .errorMessage(version.getErrorMessage())
+                .createdAt(text(version.getCreatedAt()))
+                .activatedAt(text(version.getActivatedAt()))
+                .build();
+    }
+
+    private IngestionJobResponse toJobResponse(IngestionJob job) {
+        return IngestionJobResponse.builder()
+                .jobId(job.getId())
+                .documentId(job.getDocumentId())
+                .version(job.getVersion())
+                .status(job.getStatus() == null ? "" : job.getStatus().name())
+                .progress(job.getProgress())
+                .errorMessage(job.getErrorMessage())
+                .retryCount(job.getRetryCount())
+                .createdAt(text(job.getCreatedAt()))
+                .updatedAt(text(job.getUpdatedAt()))
+                .build();
+    }
+
+    private String text(OffsetDateTime time) {
+        return time == null ? "" : time.toString();
     }
 }

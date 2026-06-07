@@ -11,9 +11,12 @@ import lombok.Data;
 public class DocumentUploadResponse {
 
     private String documentId;
+    private String jobId;
+    private Integer version;
     private String filename;
     private String docType;
     private String project;
     private Integer segmentCount;
+    private String status;
     private String message;
 }

@@ -44,6 +44,7 @@ public class RagProperties {
     @Data
     public static class Document {
         private Integer maxUploadSizeMb = 50;
+        private String storageDir = "data/rag-documents";
     }
 
     @Data

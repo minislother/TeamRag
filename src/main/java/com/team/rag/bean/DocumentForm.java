@@ -12,6 +12,9 @@ import org.springframework.web.multipart.MultipartFile;
 @Data
 public class DocumentForm {
 
+    /** 已存在文档 ID；传入时表示上传该文档的新版本，不传则创建新文档。 */
+    private String documentId;
+
     /** 文档文件，支持 PDF / Word / Markdown / TXT / HTML 等 Tika 可解析格式。 */
     private MultipartFile file;
 

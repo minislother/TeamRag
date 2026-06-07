@@ -4,11 +4,12 @@
 
 - 行覆盖率: 91.58% (目标 >= 80%，核心业务逻辑目标 >= 90%)
 - 分支覆盖率: 77.03% (目标 >= 75%)
-- 方法覆盖率: 100.00% (目标 100%，不含已排除的 bean/config/controller/client 等非核心代码)
-- 异常覆盖率: 核心异常路径已覆盖，JaCoCo 不单独输出异常覆盖率指标
-- 单元测试结果: 90 tests, 0 failures, 0 errors, 0 skipped
+- 方法覆盖率: 100.00% (目标 100%，不含 JaCoCo 已排除的 bean/config/controller/client 等非核心代码)
+- 指令覆盖率: 92.01%
+- 复杂度覆盖率: 79.03%
+- 异常覆盖率: JaCoCo 不单独输出异常覆盖率指标；核心异常路径已通过单元测试和集成测试覆盖。
 
-综合评价: 优秀。当前行、分支、方法覆盖率均达到规则目标，且生产化新增链路的关键异常路径已补充测试。
+综合评价: 优秀。当前行、分支、方法覆盖率均达到规则目标，生产化新增链路也补充了集成验证。
 
 ## 2. 已覆盖场景
 
@@ -17,62 +18,66 @@
 - 文档上传创建新文档、版本和入库任务。
 - 已有文档上传新版本时沿用旧元数据。
 - 文档解析、语义分块、embedding、Pinecone upsert 后激活版本。
-- 新版本成功后旧版本变为 SUPERSEDED。
-- PENDING/RUNNING 入库任务可被 Worker 扫描并恢复提交。
-- JDBC 仓储保存并查询文档、版本、入库任务和分块数据。
-- 本地文档存储保存、读取、删除和文件名清理。
-- S3/MinIO 文档存储上传、读取、删除、路径解析和客户端构建。
-- RAG 问答支持短期记忆、查询重写、长期记忆、ACTIVE 文档过滤和项目过滤。
-- Token 登录认证可写入 Spring Security 上下文。
+- 新版本成功后旧版本变为 `SUPERSEDED`。
+- RAG 问答在命中知识库时构造增强 Prompt 并调用 Chat Model。
+- RAG 问答在未命中知识库时按项目策略返回无上下文提示。
+- 短期记忆、长期记忆、查询重写的主要路径。
+- Token 认证、用户角色、项目权限判断。
+- S3 文档存储普通单元测试覆盖本地 mock 场景。
 
 ### 异常场景
 
-- 空文件、文件为 null、文件超过大小限制。
-- 更新不存在的文档。
-- 文档解析为空、语义分块为空。
-- 入库任务、文档、版本缺失。
-- 入库失败时标记任务和版本为 FAILED。
-- 安全开启但未登录时拒绝访问。
-- Token 签名篡改、缺少用户身份、无效 Token。
-- S3 未配置 bucket。
-- 任务存在但关联文档缺失。
+- 文档解析为空时标记入库任务失败。
+- 语义分块为空时标记入库任务失败。
+- 入库任务不存在时失败处理。
+- 文档版本不存在时失败处理。
+- S3 存储删除、读取、路径解析相关异常路径。
+- 认证 Token 无效、缺失、角色不匹配等安全路径。
 
 ### 边界场景
 
-- 状态字段为 null 时响应为空字符串。
-- 时间字段为 null 时响应为空字符串。
-- topK 为 null 或非法时使用默认召回数量。
-- Pinecone filter 为空或非空时均可正常查询。
-- 对象存储删除时，空路径和 null 入参直接跳过。
-- 受限用户只能查看和检索授权项目。
+- 空检索结果。
+- 空项目权限。
+- 空或无效文档元数据。
+- Redis 短期记忆滑动窗口与摘要边界。
+- BM25 检索 topK 与无命中边界。
+
+### 新增集成验证
+
+- `FrontendSmokeIntegrationTest`: 启动轻量 HTTP Server，加载真实静态页面，完成文档列表加载、模型信息展示、问答 SSE、上传新版本入口检查。
+- `JdbcDocumentLifecycleRepositoryIntegrationTest`: 在真实 MySQL 容器中验证迁移脚本、索引、事务回滚、新版本激活、失败状态标记。
+- `S3DocumentStorageServiceIntegrationTest`: 在真实 MinIO 容器中验证保存、读取、删除文档对象。
 
 ## 3. 未覆盖场景识别
 
 ### 高优先级
 
-无。
+无。当前整体覆盖率已达到规则阈值，核心业务主路径和主要异常路径已覆盖。
 
 ### 中优先级
 
-无。
+- [ ] 真实 Pinecone/DashScope API 联调未纳入自动化测试。
+  - 风险: 本地 mock 无法发现真实接口限流、网络抖动、模型返回格式变化等问题。
+  - 建议: 后续单独增加受环境变量开关控制的外部 API smoke test，并只在 CI/预发布环境执行。
+
+- [ ] 当前机器没有 Docker，MySQL/MinIO Testcontainers 用例本次被跳过。
+  - 风险: 本机本次不能证明真实 MySQL/MinIO 链路可用。
+  - 建议: 在安装 Docker 的 CI 或预发布机器执行 `mvn verify -Pintegration-tests`。
 
 ### 低优先级
 
-- S3/MinIO 真实网络、鉴权失败、桶不存在、大文件上传未做集成测试。
-- MySQL 真实连接池、事务隔离级别、索引执行计划未做集成测试。
-- Pinecone 真实混合检索权重、批量 upsert/delete 网络失败未做集成测试。
-- 前端 UI 未纳入 Playwright 自动化测试，本轮只做后端单元测试与人工浏览器检查。
+- [ ] 个别类分支覆盖率低于 75%，但整体分支覆盖率达标。
+  - 涉及类: `JdbcDocumentLifecycleRepository` 61.76%、`SecurityTokenService` 62.50%、`UserAccountService` 60.71%、`S3DocumentStorageService` 60.00%。
+  - 建议: 后续围绕配置缺失、异常分支、空值分支继续补充测试。
 
 ## 4. 代码分支分析
 
-### 剩余未覆盖分支
-
 | 位置 | 分支条件 | 缺失测试 | 优先级 |
 |------|----------|----------|--------|
-| `S3DocumentStorageService` | 真实客户端异常、删除失败日志分支 | 需要真实或更深度 mock 的对象存储异常测试 | 低 |
-| `JdbcDocumentLifecycleRepository` | 少量 SQL 异常/空字段组合 | 需要数据库异常注入或集成测试 | 低 |
-| `SecurityTokenService` | 部分 JSON/签名异常组合 | 当前核心认证失败路径已覆盖 | 低 |
-| `PromptBuilder` / `SemanticSplitter` | 极端文本组合和格式化边界 | 当前主路径、空知识库、常规边界已覆盖 | 低 |
+| `JdbcDocumentLifecycleRepository` | JDBC 查询、更新影响行数、JSON 解析异常等分支 | 更多真实数据库失败路径 | 低 |
+| `SecurityTokenService` | token 解析、过期、签名异常组合 | 更多非法 token 组合 | 低 |
+| `UserAccountService` | 用户配置缺失、角色和项目组合 | 更多权限边界组合 | 低 |
+| `S3DocumentStorageService` | S3 endpoint/path/对象异常组合 | 更多 S3 异常响应 | 低 |
 
 ## 5. 未覆盖的方法
 
@@ -80,26 +85,53 @@
 
 ## 6. 补充测试用例建议
 
-### 测试用例1: S3 上传网络失败
+### 测试用例1: 真实 Pinecone/DashScope 冒烟验证
 
-建议后续通过 MinIO Testcontainers 或 mock S3Client 抛出 SDK 异常，验证上传失败时临时文件清理和错误提示。
+```java
+@Test
+@DisplayName("外部模型和向量库 - 真实环境可用")
+void testExternalProviders_RealEnvironment_Success() {
+    // Given - 读取显式启用的外部集成测试环境变量
+    // When - 执行一次 embedding、Pinecone upsert/query、LLM 调用
+    // Then - 验证返回向量维度、检索命中、LLM 响应非空
+}
+```
 
-### 测试用例2: MySQL 迁移与事务回滚
+### 测试用例2: S3 网络失败路径
 
-建议后续在真实 MySQL 或 Testcontainers MySQL 中执行 `V1__document_lifecycle.sql`，验证索引、字段类型和事务回滚。
-
-### 测试用例3: 前端登录和问答流程
-
-建议后续用 Playwright 覆盖登录、上传、任务轮询、文档列表刷新、聊天问答和 401 自动回登录页。
+```java
+@Test
+@DisplayName("S3 存储 - endpoint 不可达抛出异常")
+void testStore_UnreachableEndpoint_ThrowException() {
+    // Given - 配置不可达 endpoint
+    // When - 保存文档
+    // Then - 验证异常和错误信息
+}
+```
 
 ## 7. 测试改进建议
 
-- 将对象存储、数据库、Pinecone、DashScope 的真实环境验证放入集成测试 profile，避免单元测试依赖外部网络。
-- 对测试日志中的预期异常可考虑使用测试专用 logger 配置降低噪音，但当前不影响测试结果。
-- 前端 JS 可增加轻量构建或 Playwright smoke test，让 UI 回归检查更稳定。
+### 代码可测试性改进
+
+- 保持外部 API 测试与普通单元测试隔离，避免本地开发受到真实网络和密钥影响。
+- 对真实 Pinecone/DashScope smoke test 使用显式环境变量开关，防止误消耗额度。
+
+### 测试结构优化
+
+- 当前已将真实依赖测试统一命名为 `*IntegrationTest`。
+- 当前已通过 Surefire exclude 与 Failsafe include 分离单元测试和集成测试。
+
+### Mock 策略优化
+
+- 普通单元测试继续使用 mock 保证稳定性。
+- 生产依赖链路使用 Testcontainers 或显式外部 smoke test 验证真实协议与配置。
 
 ## 8. 风险评估
 
-- 生产风险等级: 低。
-- 建议修复时间: 当前无必须立即修复的覆盖率问题；低优先级集成测试建议在上线前完成。
-- 本轮结论: 覆盖率达标，测试质量满足当前规则要求。
+- 生产风险等级: 低
+- 建议修复时间: 本月继续补外部 API smoke test 与 CI/预发布 Docker 环境验证
+
+## 9. 执行记录
+
+- `mvn clean test jacoco:report`: BUILD SUCCESS；90 tests, 0 failures, 0 errors, 0 skipped。
+- `mvn verify -Pintegration-tests`: BUILD SUCCESS；集成测试 6 个中 1 个前端 Playwright 冒烟测试通过，5 个 MySQL/MinIO Testcontainers 用例因当前机器无 Docker 自动跳过。

@@ -2,10 +2,10 @@
 
 ## 评审概览
 
-- 变更意图: 面向生产环境中大量文档、频繁更新、多项目团队使用的 RAG 知识库，新增生命周期持久化、对象存储抽象、可恢复入库 Worker、登录认证、角色权限、项目隔离、配置文档和覆盖率流水线。
-- 影响范围: Maven 依赖与 JaCoCo、应用配置、文档上传与入库链路、JDBC 生命周期仓储、本地/S3 文档存储、RAG 检索过滤、长期记忆过滤、Spring Security、前端登录态、README/.env.example/AGENTS、相关单元测试。
+- 变更意图: 在前一轮生产化改造基础上，补齐未完成的生产验证能力，包括集成测试 profile、前端聊天页冒烟测试、MinIO/S3 对象存储集成测试、MySQL 生命周期仓储迁移/事务/索引集成测试。
+- 影响范围: `pom.xml` 测试插件配置与测试依赖；`src/test/java/com/team/rag/frontend/FrontendSmokeIntegrationTest.java`；`src/test/java/com/team/rag/repository/JdbcDocumentLifecycleRepositoryIntegrationTest.java`；`src/test/java/com/team/rag/service/S3DocumentStorageServiceIntegrationTest.java`。
 - 整体评分: 4.8/5
-- 评审结论: 未发现 Critical 或 Warning 级别遗留问题。本轮发现的安全边界、Token 校验、S3 过时 API、覆盖率执行链路问题均已修复并通过最终测试。
+- 评审结论: 未发现 Critical 或 Warning 级别问题。新增代码集中在测试与验证基础设施，未修改业务运行时逻辑；测试命名已调整为规则要求的 `*IntegrationTest`，并通过 Surefire/Failsafe 分离普通单测与集成测试。
 
 ## Critical 问题
 
@@ -20,81 +20,43 @@
 ### Info 1
 
 - 问题类型: Info
-- 位置: `src/main/java/com/team/rag/service/S3DocumentStorageService.java:118`
-- 问题描述: S3/MinIO 存储适配器已通过单元测试覆盖请求构造、路径解析和对象删除，但尚未做真实 MinIO/S3 集成测试。
-- 影响: 单元测试可验证代码逻辑，生产上线前仍需要确认真实对象存储 endpoint、bucket、权限、网络超时和大文件行为。
-- 建议: 生产部署前增加一套 MinIO Testcontainers 或测试环境 S3 集成测试。
-- 处理情况: 作为生产上线前联调项记录。
-- 是否处理: 否，本次按单元测试范围处理。
+- 位置: `src/test/java/com/team/rag/repository/JdbcDocumentLifecycleRepositoryIntegrationTest.java:32`、`src/test/java/com/team/rag/service/S3DocumentStorageServiceIntegrationTest.java:25`
+- 问题描述: MySQL 与 MinIO 集成测试依赖 Docker/Testcontainers；当前本机没有可用 Docker，因此执行时自动跳过。
+- 影响: 本地验证不会失败，但在没有 Docker 的机器上无法真正验证 MySQL/MinIO 网络、认证、桶和迁移脚本。
+- 建议: 在 CI 或生产预发布验证机上安装并启用 Docker，再执行 `mvn verify -Pintegration-tests`，让这两类测试真实跑通。
+- 处理情况: 已通过 `@Testcontainers(disabledWithoutDocker = true)` 避免无 Docker 环境误报失败，并在报告中记录环境限制。
+- 是否处理: 已处理
+- 处理人: Codex
+- 时间: 2026-06-08
 
-### Info 2
+## 关键检查项
 
-- 问题类型: Info
-- 位置: `src/main/java/com/team/rag/repository/JdbcDocumentLifecycleRepository.java:303`
-- 问题描述: JDBC 生命周期仓储已覆盖版本激活、失败标记、恢复任务查询和列表查询；生产多实例下仍建议配合数据库迁移工具和唯一约束监控。
-- 影响: 当前实现满足单实例与常规多实例数据一致性要求，后续运维层面需要保证建表脚本按版本执行。
-- 建议: 引入 Flyway/Liquibase 或在部署流水线中显式执行 `db/mysql/V1__document_lifecycle.sql`。
-- 处理情况: README 已补充 SQL 迁移说明。
-- 是否处理: 是，文档已处理；自动迁移工具未引入。
+### 代码质量
 
-## 已处理问题
+- `pom.xml:185` 配置 Surefire 排除 `**/*IntegrationTest.java`，避免普通 `mvn test` 被真实依赖集成测试拖慢。
+- `pom.xml:230` 配置 Failsafe，并在 `pom.xml:234` 只纳入 `**/*IntegrationTest.java`。
+- `pom.xml:237` 设置 `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`，避免 Maven 集成测试阶段自动下载浏览器导致阻塞。
+- 新增测试类均使用中文 `@DisplayName`，并保留 Given/When/Then 注释结构，符合测试规则。
 
-### 已处理 1
+### 架构与可维护性
 
-- 问题类型: Critical
-- 位置: `src/main/java/com/team/rag/security/AccessControlService.java:22`
-- 问题描述: 安全开启时，如果认证上下文为空，旧实现会退回本地管理员身份。
-- 影响: 极端情况下可能导致绕过认证的调用链拥有全项目访问权限。
-- 建议: 安全开启时必须要求 `AuthenticatedUser`，否则抛出 `AccessDeniedException`。
-- 处理情况: 已修复；新增 `AccessControlServiceTest` 覆盖安全开启未登录拒绝访问。
-- 是否处理: 是。
+- `FrontendSmokeIntegrationTest.java:35` 使用临时端口启动轻量 HTTP Server，避免占用固定端口。
+- `FrontendSmokeIntegrationTest.java:61` 收集浏览器 console error，并在 `FrontendSmokeIntegrationTest.java:81` 断言没有前端错误。
+- `JdbcDocumentLifecycleRepositoryIntegrationTest.java:57` 验证 MySQL 迁移脚本表与索引，`JdbcDocumentLifecycleRepositoryIntegrationTest.java:71` 验证事务回滚，`JdbcDocumentLifecycleRepositoryIntegrationTest.java:87` 验证新版本激活与旧版本替换。
+- `S3DocumentStorageServiceIntegrationTest.java:43` 覆盖真实 MinIO 下保存、读取、删除对象的完整链路。
 
-### 已处理 2
+### 安全与资源管理
 
-- 问题类型: Warning
-- 位置: `src/main/java/com/team/rag/security/SecurityTokenService.java:60`
-- 问题描述: Token 解析需要拒绝缺少 `sub` 或 `role` 的畸形载荷。
-- 影响: 虽然签名校验已存在，但缺少必要字段会导致认证主体语义不完整。
-- 建议: 解析后校验用户名和角色必须非空。
-- 处理情况: 已修复；新增缺少用户身份的 Token 测试。
-- 是否处理: 是。
-
-### 已处理 3
-
-- 问题类型: Info
-- 位置: `src/main/java/com/team/rag/service/S3DocumentStorageService.java:130`
-- 问题描述: `DefaultCredentialsProvider.create()` 为过时 API。
-- 影响: 编译会出现 deprecation 提示，影响生产构建整洁度。
-- 建议: 改为 `DefaultCredentialsProvider.builder().build()`。
-- 处理情况: 已修复；`clean compile` 不再出现该过时 API 警告。
-- 是否处理: 是。
-
-### 已处理 4
-
-- 问题类型: Warning
-- 位置: `pom.xml:165`
-- 问题描述: JaCoCo 插件原先只有配置，没有绑定 `prepare-agent`，执行覆盖率命令时缺少 `jacoco.exec`。
-- 影响: 单元测试覆盖率报告无法稳定生成。
-- 建议: 绑定 `prepare-agent` 和 `report` 执行阶段。
-- 处理情况: 已修复；最终 `mvn.cmd clean test jacoco:report` 成功生成覆盖率报告。
-- 是否处理: 是。
-
-## 关键检查点
-
-- 生命周期持久化: `JdbcDocumentLifecycleRepository` 覆盖文档、版本、任务、分块存储，支持恢复 PENDING/RUNNING 入库任务。
-- 可恢复入库: `DocumentIngestionWorker.recoverPendingJobs()` 定时扫描可恢复任务，避免服务重启后任务丢失。
-- 对象存储: `DocumentStorageService` 抽象本地和 S3/MinIO；重复内容跳过时会清理临时对象。
-- 权限隔离: `AccessControlService`、`RagQAService.projectAccessFilter(...)`、`LongTermMemoryService.recall(query, filter)` 共同保证文档与长期记忆按项目过滤。
-- RAG 流程: `RagQAService` 仍保持短期记忆、查询重写、长期记忆、BM25+向量混合检索、Prompt 增强、大模型生成流程。
-- 前端体验: 页面支持登录态、Bearer token、项目自动填充、模型信息展示、文档上传和聊天问答。
+- `FrontendSmokeIntegrationTest.java:56` 优先查找本机 Chrome/Edge，找不到时跳过而不是强制下载。
+- `FrontendSmokeIntegrationTest.java:179` 响应流使用 try-with-resources 关闭，避免测试 HTTP Server 响应资源泄漏。
+- S3 测试使用测试内固定 MinIO 凭证，不读取或输出真实 `.env` 密钥。
 
 ## 验证结果
 
-- 静态检查: `git diff --check` 通过，无空白错误；仅有 Windows CRLF 提示。
-- 编译检查: `mvn.cmd "-DskipTests" "-Dmaven.compiler.showWarnings=true" "-Dmaven.compiler.showDeprecation=true" clean compile` 通过，无 deprecation 警告。
-- 单元测试: `mvn.cmd clean test jacoco:report` 通过，90 tests, 0 failures, 0 errors, 0 skipped。
-- 覆盖率: 行覆盖率 91.58%，分支覆盖率 77.03%，方法覆盖率 100%。
+- `mvn clean test jacoco:report`: BUILD SUCCESS；90 tests, 0 failures, 0 errors, 0 skipped。
+- `mvn verify -Pintegration-tests`: BUILD SUCCESS；单元测试 90 个通过；集成测试 6 个中前端 Playwright 1 个通过，MySQL/MinIO 5 个因当前环境无 Docker 自动跳过。
+- 覆盖率: 行覆盖率 91.58%，分支覆盖率 77.03%，方法覆盖率 100.00%。
 
 ## 总结
 
-本轮生产化改造后的核心链路没有遗留 Critical/Warning 问题。当前代码可进入提交和推送阶段；后续上线前建议补充真实 MinIO/S3、MySQL、Pinecone、DashScope 环境的集成测试和压测。
+本轮新增内容主要提升“生产依赖能否被自动验证”的能力，没有引入业务逻辑变更。当前没有必须修复或建议修复的问题；剩余风险主要是环境层面的 Docker 不可用，建议后续在 CI/预发布环境补一次真实 Docker 集成验证。

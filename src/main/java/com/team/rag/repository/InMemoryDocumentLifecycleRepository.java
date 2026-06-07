@@ -6,6 +6,7 @@ import com.team.rag.bean.IngestionJob;
 import com.team.rag.bean.IngestionStatus;
 import com.team.rag.bean.RagDocument;
 import com.team.rag.bean.StoredDocumentChunk;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Repository;
 
 import java.time.OffsetDateTime;
@@ -20,6 +21,7 @@ import java.util.Optional;
  * 面向本地运行的内存文档生命周期仓储。
  */
 @Repository
+@ConditionalOnProperty(prefix = "rag.lifecycle", name = "repository", havingValue = "memory", matchIfMissing = true)
 public class InMemoryDocumentLifecycleRepository implements DocumentLifecycleRepository {
 
     private final Map<String, RagDocument> documents = new LinkedHashMap<>();
@@ -91,6 +93,15 @@ public class InMemoryDocumentLifecycleRepository implements DocumentLifecycleRep
     }
 
     @Override
+    public synchronized List<IngestionJob> findRecoverableJobs(int limit) {
+        return jobs.values().stream()
+                .filter(job -> job.getStatus() == IngestionStatus.PENDING || job.getStatus() == IngestionStatus.RUNNING)
+                .sorted(Comparator.comparing(this::jobSortTime))
+                .limit(Math.max(0, limit))
+                .toList();
+    }
+
+    @Override
     public synchronized void replaceChunks(String documentId, Integer version, List<StoredDocumentChunk> newChunks) {
         chunks.put(versionKey(documentId, version), new ArrayList<>(newChunks));
     }
@@ -105,6 +116,8 @@ public class InMemoryDocumentLifecycleRepository implements DocumentLifecycleRep
         IngestionJob job = requireJob(jobId);
         job.setStatus(IngestionStatus.RUNNING);
         job.setProgress(20);
+        job.setErrorMessage("");
+        job.setRetryCount((job.getRetryCount() == null ? 0 : job.getRetryCount()) + 1);
         job.setUpdatedAt(OffsetDateTime.now());
     }
 
@@ -174,5 +187,15 @@ public class InMemoryDocumentLifecycleRepository implements DocumentLifecycleRep
 
     private String versionKey(String documentId, Integer version) {
         return documentId + ":" + version;
+    }
+
+    private OffsetDateTime jobSortTime(IngestionJob job) {
+        if (job.getUpdatedAt() != null) {
+            return job.getUpdatedAt();
+        }
+        if (job.getCreatedAt() != null) {
+            return job.getCreatedAt();
+        }
+        return OffsetDateTime.MIN;
     }
 }

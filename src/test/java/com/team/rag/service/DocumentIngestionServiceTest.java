@@ -54,6 +54,8 @@ class DocumentIngestionServiceTest {
     private PineconeClient pineconeClient;
     @Mock
     private BM25SparseEncoder sparseEncoder;
+    @Mock
+    private DocumentStorageService storageService;
 
     private DocumentLifecycleRepository repository;
     private RagProperties properties;
@@ -207,6 +209,7 @@ class DocumentIngestionServiceTest {
                 .updatedAt(now)
                 .build());
         DocumentIngestionService service = newService();
+        when(storageService.open(file.toString())).thenAnswer(invocation -> Files.newInputStream(file));
         when(tika.parseToString(any(InputStream.class))).thenReturn("Redis cache update guide");
         DocumentSegment segment = DocumentSegment.builder()
                 .id("doc:doc-1:2:0")
@@ -237,7 +240,7 @@ class DocumentIngestionServiceTest {
         // Given
         DocumentLifecycleRepository mockRepository = mock(DocumentLifecycleRepository.class);
         DocumentIngestionService service = new DocumentIngestionService(tika, semanticSplitter, dashScopeClient,
-                pineconeClient, sparseEncoder, properties, mockRepository);
+                pineconeClient, sparseEncoder, properties, mockRepository, storageService);
         when(mockRepository.findJob("missing-job")).thenReturn(Optional.empty());
         ArgumentCaptor<String> errorCaptor = ArgumentCaptor.forClass(String.class);
 
@@ -254,7 +257,7 @@ class DocumentIngestionServiceTest {
         // Given
         DocumentLifecycleRepository mockRepository = mock(DocumentLifecycleRepository.class);
         DocumentIngestionService service = new DocumentIngestionService(tika, semanticSplitter, dashScopeClient,
-                pineconeClient, sparseEncoder, properties, mockRepository);
+                pineconeClient, sparseEncoder, properties, mockRepository, storageService);
         IngestionJob job = IngestionJob.builder()
                 .id("job-1")
                 .documentId("missing-doc")
@@ -278,7 +281,7 @@ class DocumentIngestionServiceTest {
         // Given
         DocumentLifecycleRepository mockRepository = mock(DocumentLifecycleRepository.class);
         DocumentIngestionService service = new DocumentIngestionService(tika, semanticSplitter, dashScopeClient,
-                pineconeClient, sparseEncoder, properties, mockRepository);
+                pineconeClient, sparseEncoder, properties, mockRepository, storageService);
         IngestionJob job = IngestionJob.builder()
                 .id("job-1")
                 .documentId("doc-1")
@@ -298,10 +301,11 @@ class DocumentIngestionServiceTest {
     }
 
     private DocumentIngestionService newService() {
-        return new DocumentIngestionService(tika, semanticSplitter, dashScopeClient, pineconeClient, sparseEncoder, properties, repository);
+        return new DocumentIngestionService(tika, semanticSplitter, dashScopeClient, pineconeClient, sparseEncoder, properties, repository, storageService);
     }
 
-    private void prepareDocument(String jobId, Path file) {
+    private void prepareDocument(String jobId, Path file) throws Exception {
+        when(storageService.open(file.toString())).thenAnswer(invocation -> Files.newInputStream(file));
         OffsetDateTime now = OffsetDateTime.now();
         repository.saveDocument(RagDocument.builder()
                 .id("doc-1")

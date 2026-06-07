@@ -6,6 +6,7 @@ import com.team.rag.bean.RagQo;
 import com.team.rag.bean.RetrievedSegment;
 import com.team.rag.client.DashScopeClient;
 import com.team.rag.config.RagProperties;
+import com.team.rag.security.AccessControlService;
 import com.team.rag.util.BM25Retriever;
 import com.team.rag.util.PromptBuilder;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +34,7 @@ public class RagQAService {
     private final PromptBuilder promptBuilder;
     private final DashScopeClient dashScopeClient;
     private final RagProperties properties;
+    private final AccessControlService accessControlService;
 
     /**
      * RAG 混合检索问答，流式输出。
@@ -47,15 +49,17 @@ public class RagQAService {
         // 查询重写只用于检索，不改变用户问题本身；这样能提高 Pinecone 的召回质量。
         String rewrittenQuery = queryRewriteService.rewrite(query, shortMemory);
 
-        // 长期记忆是用户或团队长期沉淀的信息。
-        List<RetrievedSegment> longMemory = longTermMemoryService.recall(rewrittenQuery);
+        Map<String, Object> projectFilter = projectAccessFilter(qo);
+
+        // 长期记忆是用户或团队长期沉淀的信息；生产开启权限时也要按项目隔离。
+        List<RetrievedSegment> longMemory = longTermMemoryService.recall(rewrittenQuery, projectFilter);
 
         // RAG 的“检索”步骤：用改写后的问题去 Pinecone 做 BM25 + 向量混合检索。
         List<RetrievedSegment> ragSegments = bm25Retriever.retrieve(
                 rewrittenQuery,
                 qo.getTopK(),
                 properties.getPinecone().getNamespace(),
-                activeDocumentFilter(qo)
+                activeDocumentFilter(projectFilter)
         );
 
         // 只有真正检索到可用文本时才构造 RAG Prompt；无命中时走示例代码的通用大模型兜底。
@@ -89,11 +93,23 @@ public class RagQAService {
     /**
      * 生产检索默认只召回 ACTIVE 文档版本，避免旧版本、失败版本或删除文档进入 Prompt。
      */
-    private Map<String, Object> activeDocumentFilter(RagQo qo) {
+    private Map<String, Object> activeDocumentFilter(Map<String, Object> projectFilter) {
         Map<String, Object> filter = new LinkedHashMap<>();
         filter.put("status", Map.of("$eq", DocumentStatus.ACTIVE.name()));
+        filter.putAll(projectFilter);
+        return filter;
+    }
+
+    private Map<String, Object> projectAccessFilter(RagQo qo) {
+        Map<String, Object> filter = new LinkedHashMap<>();
         if (StringUtils.hasText(qo.getProject())) {
+            accessControlService.requireProjectAccess(qo.getProject().trim());
             filter.put("project", Map.of("$eq", qo.getProject().trim()));
+            return filter;
+        }
+        List<String> restrictedProjects = accessControlService.restrictedProjects();
+        if (!restrictedProjects.isEmpty()) {
+            filter.put("project", Map.of("$in", restrictedProjects));
         }
         return filter;
     }

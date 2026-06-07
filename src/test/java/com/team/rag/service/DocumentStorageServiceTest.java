@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.web.MockMultipartFile;
 
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -23,7 +24,7 @@ class DocumentStorageServiceTest {
         // Given
         RagProperties properties = new RagProperties();
         properties.getDocument().setStorageDir(tempDir.toString());
-        DocumentStorageService service = new DocumentStorageService(properties);
+        DocumentStorageService service = new LocalDocumentStorageService(properties);
         byte[] content = "hello rag".getBytes();
         MockMultipartFile file = new MockMultipartFile("file", "folder/redis.txt", "text/plain", content);
 
@@ -35,6 +36,9 @@ class DocumentStorageServiceTest {
         assertThat(storedPath.getFileName().toString()).isEqualTo("redis.txt");
         assertThat(storedPath).exists();
         assertThat(Files.readAllBytes(storedPath)).isEqualTo(content);
+        try (InputStream inputStream = service.open(stored.path())) {
+            assertThat(inputStream.readAllBytes()).isEqualTo(content);
+        }
         assertThat(stored.fileHash()).hasSize(64);
         assertThat(stored.size()).isEqualTo(content.length);
     }
@@ -45,7 +49,7 @@ class DocumentStorageServiceTest {
         // Given
         RagProperties properties = new RagProperties();
         properties.getDocument().setStorageDir(tempDir.toString());
-        DocumentStorageService service = new DocumentStorageService(properties);
+        DocumentStorageService service = new LocalDocumentStorageService(properties);
         MockMultipartFile file = new MockMultipartFile("file", null, "text/plain", "hello".getBytes());
 
         // When
@@ -62,7 +66,7 @@ class DocumentStorageServiceTest {
         // Given
         RagProperties properties = new RagProperties();
         properties.getDocument().setStorageDir(tempDir.toString());
-        DocumentStorageService service = new DocumentStorageService(properties);
+        DocumentStorageService service = new LocalDocumentStorageService(properties);
         Path file = Files.writeString(tempDir.resolve("orphan.txt"), "orphan");
 
         // When
@@ -77,7 +81,7 @@ class DocumentStorageServiceTest {
     void testDeleteQuietly_BlankPath_Skip() {
         // Given
         RagProperties properties = new RagProperties();
-        DocumentStorageService service = new DocumentStorageService(properties);
+        DocumentStorageService service = new LocalDocumentStorageService(properties);
 
         // When
         service.deleteQuietly(new StoredDocumentFile("", "hash", 0));

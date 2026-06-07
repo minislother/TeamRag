@@ -12,9 +12,8 @@ import com.team.rag.bean.IngestionStatus;
 import com.team.rag.bean.RagDocument;
 import com.team.rag.config.RagProperties;
 import com.team.rag.repository.DocumentLifecycleRepository;
+import com.team.rag.security.AccessControlService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
@@ -33,19 +32,19 @@ public class DocumentService {
 
     private final DocumentStorageService storageService;
     private final DocumentLifecycleRepository documentRepository;
-    private final DocumentIngestionService ingestionService;
-    private final TaskExecutor ingestionTaskExecutor;
+    private final DocumentIngestionWorker ingestionWorker;
+    private final AccessControlService accessControlService;
     private final RagProperties properties;
 
     public DocumentService(DocumentStorageService storageService,
                            DocumentLifecycleRepository documentRepository,
-                           DocumentIngestionService ingestionService,
-                           @Qualifier("documentIngestionTaskExecutor") TaskExecutor ingestionTaskExecutor,
+                           DocumentIngestionWorker ingestionWorker,
+                           AccessControlService accessControlService,
                            RagProperties properties) {
         this.storageService = storageService;
         this.documentRepository = documentRepository;
-        this.ingestionService = ingestionService;
-        this.ingestionTaskExecutor = ingestionTaskExecutor;
+        this.ingestionWorker = ingestionWorker;
+        this.accessControlService = accessControlService;
         this.properties = properties;
     }
 
@@ -58,6 +57,8 @@ public class DocumentService {
         String originalFilename = file.getOriginalFilename() == null ? "unknown" : file.getOriginalFilename();
         String documentId = resolveDocumentId(form);
         RagDocument existing = documentRepository.findDocument(documentId).orElse(null);
+        String project = resolveProject(form, existing);
+        accessControlService.requireProjectAccess(project);
         int version = documentRepository.nextVersion(documentId);
         StoredDocumentFile storedFile = storageService.store(file, documentId, version);
 
@@ -76,10 +77,10 @@ public class DocumentService {
                     .build();
         }
 
-        RagDocument document = saveProcessingDocument(form, existing, documentId, originalFilename);
+        RagDocument document = saveProcessingDocument(form, existing, documentId, originalFilename, project);
         DocumentVersion documentVersion = saveProcessingVersion(documentId, version, storedFile);
         IngestionJob job = savePendingJob(documentId, version);
-        ingestionTaskExecutor.execute(() -> ingestionService.ingest(job.getId()));
+        ingestionWorker.submit(job.getId());
         log.info("文档 {} 第 {} 版已提交后台入库任务 {}", originalFilename, version, job.getId());
 
         return DocumentUploadResponse.builder()
@@ -100,6 +101,7 @@ public class DocumentService {
      */
     public List<DocumentStatusResponse> listDocuments() {
         return documentRepository.findDocuments().stream()
+                .filter(document -> accessControlService.canAccessProject(document.getProject()))
                 .sorted(Comparator.comparing(RagDocument::getUpdatedAt).reversed())
                 .map(this::toStatusResponse)
                 .toList();
@@ -111,6 +113,7 @@ public class DocumentService {
     public DocumentStatusResponse getDocument(String documentId) {
         RagDocument document = documentRepository.findDocument(documentId)
                 .orElseThrow(() -> new IllegalArgumentException("文档不存在：" + documentId));
+        accessControlService.requireProjectAccess(document.getProject());
         return toStatusResponse(document);
     }
 
@@ -120,6 +123,9 @@ public class DocumentService {
     public IngestionJobResponse getJob(String jobId) {
         IngestionJob job = documentRepository.findJob(jobId)
                 .orElseThrow(() -> new IllegalArgumentException("入库任务不存在：" + jobId));
+        RagDocument document = documentRepository.findDocument(job.getDocumentId())
+                .orElseThrow(() -> new IllegalArgumentException("文档不存在：" + job.getDocumentId()));
+        accessControlService.requireProjectAccess(document.getProject());
         return toJobResponse(job);
     }
 
@@ -146,13 +152,13 @@ public class DocumentService {
         return UUID.randomUUID().toString();
     }
 
-    private RagDocument saveProcessingDocument(DocumentForm form, RagDocument existing, String documentId, String filename) {
+    private RagDocument saveProcessingDocument(DocumentForm form, RagDocument existing, String documentId, String filename, String project) {
         OffsetDateTime now = OffsetDateTime.now();
         RagDocument document = RagDocument.builder()
                 .id(documentId)
                 .filename(filename)
                 .docType(resolveDocType(form, existing))
-                .project(resolveProject(form, existing))
+                .project(project)
                 .tags(resolveTags(form, existing))
                 .description(resolveDescription(form, existing))
                 .currentVersion(existing == null ? null : existing.getCurrentVersion())

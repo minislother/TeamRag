@@ -55,6 +55,82 @@ button:disabled {
     min-height: 100vh;
 }
 
+.auth-gate {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: grid;
+    place-items: center;
+    background: rgba(246, 248, 250, 0.88);
+    backdrop-filter: blur(8px);
+    padding: 24px;
+}
+
+.auth-gate[hidden] {
+    display: none;
+}
+
+.login-card {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    width: min(380px, 100%);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: var(--shadow);
+    padding: 24px;
+}
+
+.login-card .brand-mark {
+    margin-bottom: 2px;
+}
+
+.login-card h2 {
+    font-size: 18px;
+}
+
+.login-card p {
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.login-error {
+    min-height: 18px;
+    color: var(--danger);
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.auth-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-height: 34px;
+    border: 1px solid var(--line-soft);
+    border-radius: 6px;
+    background: var(--panel-muted);
+    color: var(--muted);
+    font-size: 12px;
+    padding: 7px 10px;
+}
+
+.auth-bar[hidden] {
+    display: none;
+}
+
+.auth-bar strong {
+    color: var(--ink);
+}
+
+.app-shell.auth-locked {
+    filter: saturate(0.72);
+    pointer-events: none;
+    user-select: none;
+}
+
 .knowledge-panel {
     display: flex;
     flex-direction: column;

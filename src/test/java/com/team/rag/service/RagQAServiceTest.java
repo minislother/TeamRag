@@ -4,8 +4,11 @@ import com.team.rag.bean.RagQo;
 import com.team.rag.bean.RetrievedSegment;
 import com.team.rag.client.DashScopeClient;
 import com.team.rag.config.RagProperties;
+import com.team.rag.security.AccessControlService;
+import com.team.rag.security.AuthenticatedUser;
 import com.team.rag.util.BM25Retriever;
 import com.team.rag.util.PromptBuilder;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -13,6 +16,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import reactor.core.publisher.Flux;
 import reactor.test.StepVerifier;
 
@@ -20,6 +25,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
@@ -44,6 +51,7 @@ class RagQAServiceTest {
 
     @BeforeEach
     void setUp() {
+        SecurityContextHolder.clearContext();
         properties = new RagProperties();
         ragQAService = new RagQAService(
                 shortTermMemoryService,
@@ -52,8 +60,14 @@ class RagQAServiceTest {
                 bm25Retriever,
                 new PromptBuilder(),
                 dashScopeClient,
-                properties
+                properties,
+                new AccessControlService(properties)
         );
+    }
+
+    @AfterEach
+    void tearDown() {
+        SecurityContextHolder.clearContext();
     }
 
     @Test
@@ -65,7 +79,7 @@ class RagQAServiceTest {
         qo.setConversationId("demo");
         when(shortTermMemoryService.getRecentMessages("demo")).thenReturn(List.of());
         when(queryRewriteService.rewrite(qo.getQuery(), List.of())).thenReturn(qo.getQuery());
-        when(longTermMemoryService.recall(qo.getQuery())).thenReturn(List.of());
+        when(longTermMemoryService.recall(eq(qo.getQuery()), anyMap())).thenReturn(List.of());
         when(bm25Retriever.retrieve(eq(qo.getQuery()), isNull(), eq(properties.getPinecone().getNamespace()), org.mockito.ArgumentMatchers.anyMap())).thenReturn(List.of());
         ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
         when(dashScopeClient.stream(promptCaptor.capture())).thenReturn(Flux.just("可以缓存空值、使用布隆过滤器或做参数校验。"));
@@ -100,7 +114,7 @@ class RagQAServiceTest {
                 .build();
         when(shortTermMemoryService.getRecentMessages("demo")).thenReturn(List.of());
         when(queryRewriteService.rewrite(qo.getQuery(), List.of())).thenReturn(qo.getQuery());
-        when(longTermMemoryService.recall(qo.getQuery())).thenReturn(List.of());
+        when(longTermMemoryService.recall(eq(qo.getQuery()), anyMap())).thenReturn(List.of());
         when(bm25Retriever.retrieve(eq(qo.getQuery()), isNull(), eq(properties.getPinecone().getNamespace()), org.mockito.ArgumentMatchers.anyMap())).thenReturn(List.of(segment));
         ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
         when(dashScopeClient.stream(promptCaptor.capture())).thenReturn(Flux.just("根据知识库，缓存穿透可以通过缓存空值、布隆过滤器、参数校验解决。"));
@@ -130,9 +144,9 @@ class RagQAServiceTest {
         qo.setQuery("Redis 是什么");
         when(shortTermMemoryService.getRecentMessages("1")).thenReturn(List.of());
         when(queryRewriteService.rewrite(qo.getQuery(), List.of())).thenReturn(qo.getQuery());
-        when(longTermMemoryService.recall(qo.getQuery())).thenReturn(List.of());
+        when(longTermMemoryService.recall(eq(qo.getQuery()), anyMap())).thenReturn(List.of());
         when(bm25Retriever.retrieve(eq(qo.getQuery()), isNull(), eq(properties.getPinecone().getNamespace()), org.mockito.ArgumentMatchers.anyMap())).thenReturn(List.of());
-        when(dashScopeClient.stream("请回答问题：Redis 是什么")).thenReturn(Flux.just("Redis 是内存数据库。"));
+        when(dashScopeClient.stream(anyString())).thenReturn(Flux.just("Redis 是内存数据库。"));
 
         // When & Then
         StepVerifier.create(ragQAService.qa(qo))
@@ -156,7 +170,7 @@ class RagQAServiceTest {
         qo.setProject("infra");
         when(shortTermMemoryService.getRecentMessages("1")).thenReturn(List.of());
         when(queryRewriteService.rewrite(qo.getQuery(), List.of())).thenReturn(qo.getQuery());
-        when(longTermMemoryService.recall(qo.getQuery())).thenReturn(List.of());
+        when(longTermMemoryService.recall(eq(qo.getQuery()), anyMap())).thenReturn(List.of());
         ArgumentCaptor<Map<String, Object>> filterCaptor = ArgumentCaptor.forClass(Map.class);
         when(bm25Retriever.retrieve(eq(qo.getQuery()), isNull(), eq(properties.getPinecone().getNamespace()), filterCaptor.capture()))
                 .thenReturn(List.of());
@@ -170,5 +184,38 @@ class RagQAServiceTest {
         assertThat(filterCaptor.getValue())
                 .containsEntry("status", Map.of("$eq", "ACTIVE"))
                 .containsEntry("project", Map.of("$eq", "infra"));
+    }
+
+    @Test
+    @DisplayName("RAG 问答 - 受限用户未选择项目时使用项目白名单过滤")
+    @SuppressWarnings("unchecked")
+    void testQa_RestrictedUser_UseProjectAllowListFilter() {
+        // Given
+        properties.getSecurity().setEnabled(true);
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                new AuthenticatedUser("alice", "USER", List.of("infra", "docs")),
+                null,
+                List.of()
+        ));
+        RagQo qo = new RagQo();
+        qo.setQuery("Redis 是什么");
+        when(shortTermMemoryService.getRecentMessages("1")).thenReturn(List.of());
+        when(queryRewriteService.rewrite(qo.getQuery(), List.of())).thenReturn(qo.getQuery());
+        ArgumentCaptor<Map<String, Object>> memoryFilterCaptor = ArgumentCaptor.forClass(Map.class);
+        when(longTermMemoryService.recall(eq(qo.getQuery()), memoryFilterCaptor.capture())).thenReturn(List.of());
+        ArgumentCaptor<Map<String, Object>> documentFilterCaptor = ArgumentCaptor.forClass(Map.class);
+        when(bm25Retriever.retrieve(eq(qo.getQuery()), isNull(), eq(properties.getPinecone().getNamespace()), documentFilterCaptor.capture()))
+                .thenReturn(List.of());
+        when(dashScopeClient.stream("请回答问题：Redis 是什么")).thenReturn(Flux.just("Redis 是内存数据库。"));
+
+        // When & Then
+        StepVerifier.create(ragQAService.qa(qo))
+                .expectNext("Redis 是内存数据库。")
+                .verifyComplete();
+
+        assertThat(memoryFilterCaptor.getValue()).containsEntry("project", Map.of("$in", List.of("infra", "docs")));
+        assertThat(documentFilterCaptor.getValue())
+                .containsEntry("status", Map.of("$eq", "ACTIVE"))
+                .containsEntry("project", Map.of("$in", List.of("infra", "docs")));
     }
 }

@@ -20,8 +20,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -43,6 +41,7 @@ public class DocumentIngestionService {
     private final BM25SparseEncoder sparseEncoder;
     private final RagProperties properties;
     private final DocumentLifecycleRepository documentRepository;
+    private final DocumentStorageService storageService;
 
     /**
      * 执行指定入库任务，把文档新版本写入 Pinecone 并切换为 ACTIVE。
@@ -98,7 +97,7 @@ public class DocumentIngestionService {
     }
 
     private String parse(DocumentVersion version) throws Exception {
-        try (InputStream inputStream = Files.newInputStream(Path.of(version.getFilePath()))) {
+        try (InputStream inputStream = storageService.open(version.getFilePath())) {
             String text = tika.parseToString(inputStream);
             if (!StringUtils.hasText(text)) {
                 throw new IllegalArgumentException("文档未解析出有效文本");

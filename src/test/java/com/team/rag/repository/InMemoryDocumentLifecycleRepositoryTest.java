@@ -56,6 +56,33 @@ class InMemoryDocumentLifecycleRepositoryTest {
     }
 
     @Test
+    @DisplayName("恢复任务查询 - 只返回 PENDING 和 RUNNING 并按更新时间升序")
+    void testFindRecoverableJobs_ReturnPendingAndRunningJobs() {
+        // Given
+        InMemoryDocumentLifecycleRepository repository = new InMemoryDocumentLifecycleRepository();
+        OffsetDateTime now = OffsetDateTime.now();
+        repository.saveJob(job("job-running", "doc-1", 1, now.minusMinutes(2), IngestionStatus.RUNNING));
+        repository.saveJob(job("job-pending", "doc-1", 2, now.minusMinutes(3), IngestionStatus.PENDING));
+        repository.saveJob(job("job-success", "doc-1", 3, now.minusMinutes(1), IngestionStatus.SUCCESS));
+        repository.saveJob(job("job-failed", "doc-1", 4, now, IngestionStatus.FAILED));
+
+        // When
+        List<IngestionJob> jobs = repository.findRecoverableJobs(10);
+
+        // Then
+        assertThat(jobs).extracting(IngestionJob::getId).containsExactly("job-pending", "job-running");
+
+        // When
+        repository.markIngestionStarted("job-pending");
+
+        // Then
+        IngestionJob started = repository.findJob("job-pending").orElseThrow();
+        assertThat(started.getStatus()).isEqualTo(IngestionStatus.RUNNING);
+        assertThat(started.getRetryCount()).isEqualTo(1);
+        assertThat(started.getProgress()).isEqualTo(20);
+    }
+
+    @Test
     @DisplayName("入库成功 - 激活新版本并把旧版本标记为已替代")
     void testMarkIngestionSucceeded_SupersedePreviousActiveVersion() {
         // Given
@@ -157,12 +184,16 @@ class InMemoryDocumentLifecycleRepositoryTest {
     }
 
     private IngestionJob job(String jobId, String documentId, Integer version, OffsetDateTime createdAt) {
+        return job(jobId, documentId, version, createdAt, IngestionStatus.PENDING);
+    }
+
+    private IngestionJob job(String jobId, String documentId, Integer version, OffsetDateTime createdAt, IngestionStatus status) {
         return IngestionJob.builder()
                 .id(jobId)
                 .documentId(documentId)
                 .version(version)
-                .status(IngestionStatus.PENDING)
-                .progress(0)
+                .status(status)
+                .progress(status == IngestionStatus.RUNNING ? 20 : 0)
                 .retryCount(0)
                 .createdAt(createdAt)
                 .updatedAt(createdAt)

@@ -19,6 +19,11 @@ public class RagProperties {
     private SemanticSplitter semanticSplitter = new SemanticSplitter();
     private Hybrid hybrid = new Hybrid();
     private Memory memory = new Memory();
+    private Lifecycle lifecycle = new Lifecycle();
+    private Datasource datasource = new Datasource();
+    private DocumentStorage documentStorage = new DocumentStorage();
+    private Ingestion ingestion = new Ingestion();
+    private Security security = new Security();
 
     @Data
     public static class DashScope {
@@ -65,5 +70,51 @@ public class RagProperties {
     public static class Memory {
         private Integer windowSize = 8;
         private Integer summaryThreshold = 12;
+    }
+
+    @Data
+    public static class Lifecycle {
+        private String repository = "memory";
+    }
+
+    @Data
+    public static class Datasource {
+        private String url;
+        private String username;
+        private String password;
+        private String driverClassName = "com.mysql.cj.jdbc.Driver";
+    }
+
+    @Data
+    public static class DocumentStorage {
+        private String type = "local";
+        private S3 s3 = new S3();
+    }
+
+    @Data
+    public static class Ingestion {
+        private Boolean recoveryEnabled = true;
+        private Long recoveryFixedDelayMs = 30000L;
+        private Long recoveryInitialDelayMs = 5000L;
+        private Integer recoveryBatchSize = 20;
+    }
+
+    @Data
+    public static class Security {
+        private Boolean enabled = false;
+        private String tokenSecret = "change-this-token-secret-before-production";
+        private Long tokenTtlMinutes = 720L;
+        private String users = "admin:admin123:ADMIN:*";
+    }
+
+    @Data
+    public static class S3 {
+        private String endpoint;
+        private String region = "us-east-1";
+        private String bucket;
+        private String accessKey;
+        private String secretKey;
+        private Boolean pathStyleAccess = true;
+        private String prefix = "rag-documents";
     }
 }

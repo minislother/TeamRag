@@ -3,6 +3,7 @@ package com.team.rag;
 import com.team.rag.config.DotenvApplicationListener;
 import com.team.rag.config.RagProperties;
 import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 
@@ -11,7 +12,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
  *
  * <p>启动时先加载项目根目录下的 .env，便于复用 RepoPilot 原来的模型 API 配置。</p>
  */
-@SpringBootApplication
+@SpringBootApplication(exclude = DataSourceAutoConfiguration.class)
 @EnableConfigurationProperties(RagProperties.class)
 public class TeamRagApplication {
 

@@ -30,10 +30,19 @@ const docTypeToggle = document.querySelector("#docTypeToggle");
 const projectToggle = document.querySelector("#projectToggle");
 const docTypeClear = document.querySelector("#docTypeClear");
 const projectClear = document.querySelector("#projectClear");
+const appShell = document.querySelector(".app-shell");
+const authGate = document.querySelector("#authGate");
+const loginForm = document.querySelector("#loginForm");
+const loginError = document.querySelector("#loginError");
+const loginButton = document.querySelector("#loginButton");
+const authBar = document.querySelector("#authBar");
+const currentUserText = document.querySelector("#currentUserText");
+const logoutButton = document.querySelector("#logoutButton");
 
 let activeController = null;
 let uploadPollTimer = null;
 let selectedTags = [];
+let authToken = "";
 
 const storage = {
     conversationId: "team-rag-conversation",
@@ -41,7 +50,8 @@ const storage = {
     topK: "team-rag-top-k",
     docTypes: "team-rag-doc-types",
     projects: "team-rag-projects",
-    tags: "team-rag-tags"
+    tags: "team-rag-tags",
+    authToken: "team-rag-auth-token"
 };
 
 const defaultOptions = {
@@ -76,7 +86,7 @@ loadSettings();
 loadOptionHistory();
 projectInput.value = "";
 syncTagsInput();
-loadDocumentList();
+initAuth();
 
 uploadForm.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -91,10 +101,13 @@ uploadForm.addEventListener("submit", async (event) => {
     setUploadStatus("正在提交入库任务...", "");
     uploadForm.querySelector("button[type='submit']").disabled = true;
     try {
-        const response = await fetch("/api/document/upload", {
+        const response = await apiFetch("/api/document/upload", {
             method: "POST",
             body: formData
         });
+        if (handleAuthFailure(response)) {
+            return;
+        }
         const payload = await readJsonOrText(response);
         if (!response.ok) {
             throw new Error(payload.message || payload || "上传失败");
@@ -116,6 +129,17 @@ uploadForm.addEventListener("submit", async (event) => {
 refreshDocumentsButton.addEventListener("click", loadDocumentList);
 
 clearUpdateTargetButton.addEventListener("click", clearUpdateTarget);
+
+loginForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await login();
+});
+
+logoutButton.addEventListener("click", () => {
+    authToken = "";
+    localStorage.removeItem(storage.authToken);
+    showAuthGate("已退出，请重新登录。");
+});
 
 chatForm.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -161,6 +185,101 @@ questionInput.addEventListener("keydown", (event) => {
     }
 });
 
+async function initAuth() {
+    authToken = localStorage.getItem(storage.authToken) || "";
+    try {
+        const response = await apiFetch("/api/auth/me");
+        if (response.status === 401) {
+            showAuthGate("");
+            return;
+        }
+        const payload = await readJsonOrText(response);
+        if (!response.ok) {
+            throw new Error(payload.message || payload || "登录状态检查失败");
+        }
+        hideAuthGate(payload);
+        await loadDocumentList();
+    } catch (error) {
+        showAuthGate(error.message);
+    }
+}
+
+async function login() {
+    loginError.textContent = "";
+    loginButton.disabled = true;
+    const formData = new FormData(loginForm);
+    try {
+        const response = await fetch("/api/auth/login", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                username: String(formData.get("username") || "").trim(),
+                password: String(formData.get("password") || "")
+            })
+        });
+        const payload = await readJsonOrText(response);
+        if (!response.ok) {
+            throw new Error(payload.message || payload || "登录失败");
+        }
+        authToken = payload.token || "";
+        localStorage.setItem(storage.authToken, authToken);
+        hideAuthGate(payload);
+        loginForm.reset();
+        await loadDocumentList();
+    } catch (error) {
+        loginError.textContent = error.message;
+    } finally {
+        loginButton.disabled = false;
+    }
+}
+
+function apiFetch(url, options = {}) {
+    const headers = new Headers(options.headers || {});
+    if (authToken) {
+        headers.set("Authorization", `Bearer ${authToken}`);
+    }
+    return fetch(url, {
+        ...options,
+        headers
+    });
+}
+
+function handleAuthFailure(response) {
+    if (response.status !== 401) {
+        return false;
+    }
+    authToken = "";
+    localStorage.removeItem(storage.authToken);
+    showAuthGate("登录已过期，请重新登录。");
+    return true;
+}
+
+function showAuthGate(message) {
+    loginError.textContent = message || "";
+    authGate.hidden = false;
+    appShell.classList.add("auth-locked");
+    authBar.hidden = true;
+    setTimeout(() => loginForm.querySelector("input[name='username']").focus(), 0);
+}
+
+function hideAuthGate(payload = {}) {
+    authGate.hidden = true;
+    appShell.classList.remove("auth-locked");
+    const enabled = Boolean(payload.securityEnabled);
+    authBar.hidden = !enabled;
+    if (enabled) {
+        const projects = Array.isArray(payload.projects) && payload.projects.length > 0
+            ? payload.projects.join("、")
+            : "全部项目";
+        currentUserText.textContent = `${payload.username || "用户"} · ${payload.role || "USER"} · ${projects}`;
+        if (Array.isArray(payload.projects) && payload.projects.length === 1 && payload.projects[0] !== "*" && !projectInput.value.trim()) {
+            projectInput.value = payload.projects[0];
+        }
+    }
+}
+
 async function askQuestion(question, assistantContent) {
     activeController = new AbortController();
     setChatBusy(true);
@@ -179,7 +298,7 @@ async function askQuestion(question, assistantContent) {
     }
 
     try {
-        const response = await fetch("/api/rag/qa", {
+        const response = await apiFetch("/api/rag/qa", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"
@@ -188,6 +307,9 @@ async function askQuestion(question, assistantContent) {
             signal: activeController.signal
         });
 
+        if (handleAuthFailure(response)) {
+            return;
+        }
         if (!response.ok) {
             const payload = await readJsonOrText(response);
             throw new Error(payload.message || payload || "问答请求失败");
@@ -299,7 +421,10 @@ function setUploadStatus(text, state) {
 async function pollIngestionJob(jobId) {
     clearTimeout(uploadPollTimer);
     try {
-        const response = await fetch(`/api/document/jobs/${encodeURIComponent(jobId)}`);
+        const response = await apiFetch(`/api/document/jobs/${encodeURIComponent(jobId)}`);
+        if (handleAuthFailure(response)) {
+            return;
+        }
         const payload = await readJsonOrText(response);
         if (!response.ok) {
             throw new Error(payload.message || payload || "查询入库任务失败");
@@ -316,7 +441,10 @@ async function pollIngestionJob(jobId) {
 
 async function loadDocumentList() {
     try {
-        const response = await fetch("/api/document");
+        const response = await apiFetch("/api/document");
+        if (handleAuthFailure(response)) {
+            return;
+        }
         const payload = await readJsonOrText(response);
         if (!response.ok) {
             throw new Error(payload.message || payload || "查询文档状态失败");

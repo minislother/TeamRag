@@ -19,6 +19,8 @@ TeamRagKnowledgeBase 是一个 Spring Boot + DashScope/OpenAI 兼容模型 + Pin
 ## 关键目录
 - `src/main/java/com/team/rag/controller/` - HTTP API 入口。
 - `src/main/java/com/team/rag/service/` - 文档入库、问答、记忆和召回编排。
+- `src/main/java/com/team/rag/repository/` - 文档生命周期、版本、入库任务和分块元数据仓储。
+- `src/main/java/com/team/rag/security/` - 登录认证、Token、角色权限和项目级隔离。
 - `src/main/java/com/team/rag/client/` - DashScope 与 Pinecone REST 客户端。
 - `src/main/java/com/team/rag/util/` - 语义分块、BM25、检索、提示词工具。
 - `src/main/resources/static/` - 浏览器聊天前端。
@@ -29,6 +31,8 @@ TeamRagKnowledgeBase 是一个 Spring Boot + DashScope/OpenAI 兼容模型 + Pin
 - 不要把模型和 Pinecone HTTP 调用散落到 Controller 或普通工具类；优先复用 `DashScopeClient` 和 `PineconeClient`。
 - 修改模型默认值时，同步检查 `application.properties`、`RagProperties`、`.env.example` 和前端展示文案。
 - `DocumentForm` 只有 `file` 是必填字段；`docType`、`project`、`tags`、`description` 是可选元数据。
+- 生产开启 `RAG_SECURITY_ENABLED=true` 时，必须设置强随机 `RAG_SECURITY_TOKEN_SECRET`，并按项目配置 `RAG_SECURITY_USERS`。
+- 生产使用 JDBC 生命周期仓储时，先执行 `src/main/resources/db/mysql/V1__document_lifecycle.sql`。
 - 前端静态资源修改后运行 `mvn process-resources`，避免启动中的应用仍加载旧资源。
 - 真实密钥和业务约定写到人工维护文档或本地配置时，要避免暴露到公开仓库。
 

@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 长期记忆召回服务。
@@ -25,8 +26,19 @@ public class LongTermMemoryService {
      * 召回长期记忆。
      */
     public List<RetrievedSegment> recall(String rewrittenQuery) {
+        return recall(rewrittenQuery, Map.of());
+    }
+
+    /**
+     * 鍙洖甯?metadata filter 鐨勯暱鏈熻蹇嗐€?     */
+    public List<RetrievedSegment> recall(String rewrittenQuery, Map<String, Object> filter) {
         try {
-            return bm25Retriever.retrieve(rewrittenQuery, Math.min(properties.getHybrid().getTopK(), 3), properties.getPinecone().getMemoryNamespace());
+            return bm25Retriever.retrieve(
+                    rewrittenQuery,
+                    Math.min(properties.getHybrid().getTopK(), 3),
+                    properties.getPinecone().getMemoryNamespace(),
+                    filter == null ? Map.of() : filter
+            );
         } catch (Exception ex) {
             return List.of();
         }

@@ -5,9 +5,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>团队 RAG 知识库</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="/styles.css?v=20260607-lifecycle1">
+    <link rel="stylesheet" href="/styles.css?v=20260607-security1">
 </head>
 <body>
+<div id="authGate" class="auth-gate" hidden>
+    <form id="loginForm" class="login-card">
+        <div class="brand-mark">RAG</div>
+        <h2>登录团队知识库</h2>
+        <p>请输入管理员分配的账号，系统会按项目权限隔离资料与问答结果。</p>
+        <label>
+            <span>用户名</span>
+            <input id="loginUsername" name="username" type="text" autocomplete="username" required>
+        </label>
+        <label>
+            <span>密码</span>
+            <input id="loginPassword" name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <div id="loginError" class="login-error" role="alert"></div>
+        <button id="loginButton" class="primary-button" type="submit">登录</button>
+    </form>
+</div>
 <main class="app-shell">
     <aside class="knowledge-panel" aria-label="文档入库">
         <div class="brand-row">
@@ -16,6 +33,10 @@
                 <h1>团队知识库</h1>
                 <p>文档入库与问答</p>
             </div>
+        </div>
+        <div id="authBar" class="auth-bar" hidden>
+            <span id="currentUserText"></span>
+            <button id="logoutButton" class="text-button" type="button">退出</button>
         </div>
 
         <form id="uploadForm" class="upload-form">
@@ -182,6 +203,6 @@
     </section>
 </main>
 
-<script src="/app.js?v=20260607-lifecycle1"></script>
+<script src="/app.js?v=20260607-security1"></script>
 </body>
 </html>

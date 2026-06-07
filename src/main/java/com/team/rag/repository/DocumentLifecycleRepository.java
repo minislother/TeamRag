@@ -35,6 +35,8 @@ public interface DocumentLifecycleRepository {
 
     List<IngestionJob> findJobs(String documentId);
 
+    List<IngestionJob> findRecoverableJobs(int limit);
+
     void replaceChunks(String documentId, Integer version, List<StoredDocumentChunk> chunks);
 
     List<StoredDocumentChunk> findChunks(String documentId, Integer version);

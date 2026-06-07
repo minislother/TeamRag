@@ -12,13 +12,17 @@ import com.team.rag.bean.RagDocument;
 import com.team.rag.config.RagProperties;
 import com.team.rag.repository.DocumentLifecycleRepository;
 import com.team.rag.repository.InMemoryDocumentLifecycleRepository;
+import com.team.rag.security.AccessControlService;
+import com.team.rag.security.AuthenticatedUser;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.core.task.TaskExecutor;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -41,15 +45,21 @@ class DocumentServiceTest {
     @Mock
     private DocumentStorageService storageService;
     @Mock
-    private DocumentIngestionService ingestionService;
+    private DocumentIngestionWorker ingestionWorker;
 
     private DocumentLifecycleRepository repository;
     private RagProperties properties;
 
     @BeforeEach
     void setUp() {
+        SecurityContextHolder.clearContext();
         repository = new InMemoryDocumentLifecycleRepository();
         properties = new RagProperties();
+    }
+
+    @AfterEach
+    void tearDown() {
+        SecurityContextHolder.clearContext();
     }
 
     @Test
@@ -118,7 +128,7 @@ class DocumentServiceTest {
         assertThat(repository.findDocument(response.getDocumentId())).isPresent();
         assertThat(repository.findVersion(response.getDocumentId(), 1)).isPresent();
         assertThat(repository.findJob(response.getJobId())).isPresent();
-        verify(ingestionService).ingest(response.getJobId());
+        verify(ingestionWorker).submit(response.getJobId());
     }
 
     @Test
@@ -176,7 +186,7 @@ class DocumentServiceTest {
         assertThat(response.getStatus()).isEqualTo("ACTIVE");
         assertThat(response.getSegmentCount()).isEqualTo(3);
         verify(storageService).deleteQuietly(new StoredDocumentFile("D:/tmp/redis.txt", "same-hash", form.getFile().getSize()));
-        verify(ingestionService, never()).ingest(anyString());
+        verify(ingestionWorker, never()).submit(anyString());
     }
 
     @Test
@@ -228,7 +238,7 @@ class DocumentServiceTest {
         assertThat(saved.getTags()).isEqualTo("Redis,Cache");
         assertThat(saved.getDescription()).isEqualTo("旧版本说明");
         assertThat(saved.getCurrentVersion()).isEqualTo(1);
-        verify(ingestionService).ingest(response.getJobId());
+        verify(ingestionWorker).submit(response.getJobId());
     }
 
     @Test
@@ -313,6 +323,66 @@ class DocumentServiceTest {
     }
 
     @Test
+    @DisplayName("文档状态查询 - 任务存在但文档缺失时抛出异常")
+    void testGetJob_DocumentMissing_ThrowException() {
+        // Given
+        DocumentService service = newService();
+        repository.saveJob(IngestionJob.builder()
+                .id("job-orphan")
+                .documentId("missing-doc")
+                .version(1)
+                .status(IngestionStatus.PENDING)
+                .progress(0)
+                .retryCount(0)
+                .createdAt(OffsetDateTime.now())
+                .updatedAt(OffsetDateTime.now())
+                .build());
+
+        // When & Then
+        assertThatThrownBy(() -> service.getJob("job-orphan"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("missing-doc");
+    }
+
+    @Test
+    @DisplayName("项目隔离 - 受限用户只能看到授权项目")
+    void testProjectIsolation_RestrictedUser_ReturnAllowedProjectOnly() {
+        // Given
+        properties.getSecurity().setEnabled(true);
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                new AuthenticatedUser("alice", "USER", List.of("infra")),
+                null,
+                List.of()
+        ));
+        DocumentService service = newService();
+        OffsetDateTime now = OffsetDateTime.now();
+        repository.saveDocument(RagDocument.builder()
+                .id("doc-1")
+                .filename("redis.txt")
+                .project("infra")
+                .status(DocumentStatus.ACTIVE)
+                .createdAt(now)
+                .updatedAt(now)
+                .build());
+        repository.saveDocument(RagDocument.builder()
+                .id("doc-2")
+                .filename("pay.txt")
+                .project("pay")
+                .status(DocumentStatus.ACTIVE)
+                .createdAt(now)
+                .updatedAt(now.plusSeconds(1))
+                .build());
+
+        // When
+        List<DocumentStatusResponse> documents = service.listDocuments();
+
+        // Then
+        assertThat(documents).extracting(DocumentStatusResponse::getDocumentId).containsExactly("doc-1");
+        assertThatThrownBy(() -> service.getDocument("doc-2"))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+    }
+
+    @Test
     @DisplayName("文档状态查询 - 空状态和空时间返回空字符串")
     void testGetDocument_NullStatusAndTimes_ReturnEmptyText() {
         // Given
@@ -358,7 +428,6 @@ class DocumentServiceTest {
     }
 
     private DocumentService newService() {
-        TaskExecutor directExecutor = Runnable::run;
-        return new DocumentService(storageService, repository, ingestionService, directExecutor, properties);
+        return new DocumentService(storageService, repository, ingestionWorker, new AccessControlService(properties), properties);
     }
 }

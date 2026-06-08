@@ -1,0 +1,48 @@
+version: '1.0'
+name: team-rag-ci-cd
+displayName: TeamRag CI/CD
+triggers:
+  push:
+    branches:
+      include:
+        - main
+  pr:
+    branches:
+      include:
+        - main
+stages:
+  - name: verify-and-package
+    displayName: Verify And Package
+    strategy: naturally
+    trigger: auto
+    steps:
+      - step: build@maven
+        name: build_maven
+        displayName: Maven Test Coverage Package
+        jdkVersion: 17
+        mavenVersion: 3.6.3
+        commands:
+          - mvn -B -U clean test jacoco:report jacoco:check
+          - mvn -B verify -Pintegration-tests
+        artifacts:
+          - name: BUILD_ARTIFACT
+            path:
+              - ./target/team-rag-knowledge-base-1.0.0.jar
+              - ./target/site/jacoco
+              - ./CODE_REVIEW_REPORT.md
+              - ./TEST_ACC_REPORT.md
+      - step: publish@general_artifacts
+        name: publish_general_artifacts
+        displayName: Publish Build Artifact
+        dependArtifact: BUILD_ARTIFACT
+        artifactRepository: default
+        artifactName: team-rag-knowledge-base
+        dependsOn: build_maven
+      - step: publish@release_artifacts
+        name: publish_release_artifacts
+        displayName: Publish Release Artifact
+        dependArtifact: team-rag-knowledge-base
+        artifactRepository: release
+        version: '1.0.0'
+        autoIncrement: true
+        dependsOn: publish_general_artifacts

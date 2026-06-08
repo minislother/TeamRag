@@ -1,0 +1,17 @@
+services:
+  team-rag:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: ${TEAM_RAG_IMAGE:-team-rag-knowledge-base:latest}
+    container_name: team-rag-knowledge-base
+    env_file:
+      - ../.env
+    ports:
+      - "${TEAM_RAG_HTTP_PORT:-8080}:8080"
+    restart: unless-stopped
+    volumes:
+      - team-rag-data:/app/data
+
+volumes:
+  team-rag-data:

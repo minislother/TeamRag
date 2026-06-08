@@ -1,0 +1,10 @@
+.git
+.idea
+.codex
+target
+*.iml
+*.log
+.env
+.env.*
+CODE_REVIEW_REPORT.md
+TEST_ACC_REPORT.md

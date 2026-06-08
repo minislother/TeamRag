@@ -217,6 +217,86 @@ curl -N -X POST "http://localhost:8080/api/rag/qa" `
   -d "{\"query\":\"Redis 缓存穿透如何解决？\",\"conversationId\":\"demo\",\"project\":\"baituan\"}"
 ```
 
+## CI/CD
+
+项目已增加 Gitee Go 流水线配置：`.workflow/team-rag-ci-cd.yml`。
+
+触发条件：
+
+- push 到 `main` 分支。
+- 向 `main` 发起 Pull Request。
+
+流水线执行内容：
+
+1. `mvn -B -U clean test jacoco:report jacoco:check`
+2. `mvn -B verify -Pintegration-tests`
+3. 上传构建产物到 Gitee 默认制品库。
+4. 发布 release 制品，制品名为 `team-rag-knowledge-base`。
+
+覆盖率阈值在 `pom.xml` 中统一配置：
+
+```properties
+coverage.line.minimum=0.80
+coverage.branch.minimum=0.75
+coverage.method.minimum=1.00
+```
+
+流水线产物包括：
+
+- `target/team-rag-knowledge-base-1.0.0.jar`
+- `target/site/jacoco`
+- `CODE_REVIEW_REPORT.md`
+- `TEST_ACC_REPORT.md`
+
+### Docker 部署
+
+构建镜像：
+
+```powershell
+docker build -t team-rag-knowledge-base:latest .
+```
+
+使用 Compose 启动：
+
+```powershell
+docker compose -f deploy/docker-compose.prod.yml up -d --build
+```
+
+Compose 会读取项目根目录 `.env`。生产环境不要把真实 `.env` 提交到 Git，建议放在服务器目录或 Gitee Secret 中。
+
+### systemd 主机部署
+
+Linux 服务器可使用：
+
+```bash
+mvn -B -DskipTests package
+scripts/deploy.sh
+```
+
+默认部署目录：
+
+```text
+/opt/team-rag-knowledge-base
+```
+
+默认 systemd 服务：
+
+```text
+team-rag.service
+```
+
+生产服务器需要提前准备：
+
+- JDK 17
+- MySQL
+- Redis
+- MinIO / S3
+- 可访问的 Pinecone
+- DashScope / GLM 相关 API Key
+- `/opt/team-rag-knowledge-base/.env`
+
+如果要做到真正自动部署到服务器，需要在 Gitee Go 中继续配置主机组或部署凭证，然后让部署步骤调用 `scripts/deploy.sh`。
+
 ## 生产优化
 
 - 中文分词可替换为 IK / jieba，提高 BM25 sparse token 质量。

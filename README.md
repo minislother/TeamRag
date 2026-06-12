@@ -2,7 +2,7 @@
 
 团队 RAG 智能知识库，面向项目资料管理、研发规范查询和新人培训问答场景。
 
-项目参考给定示例代码的结构实现，保留 `config / service / util / bean / controller` 分层，并补齐短期记忆、查询重写、长期记忆召回和 Pinecone dense + sparse hybrid 检索流程。
+项目采用 `config / service / util / bean / controller` 分层，包含短期记忆、查询重写、长期记忆召回和 Pinecone dense + sparse hybrid 检索流程。
 
 ## 技术选型
 
@@ -105,7 +105,7 @@ TeamRagKnowledgeBase/
 
 兜底回答：
 
-- 如果长期记忆和文档知识库都没有召回到可用片段，系统会按示例代码思路转通用大模型回答。
+- 如果长期记忆和文档知识库都没有召回到可用片段，系统会转为通用大模型回答。
 - 通用兜底答案会先标注“知识库未命中”，避免把通用模型推理误认为团队知识库事实。
 
 ## 配置

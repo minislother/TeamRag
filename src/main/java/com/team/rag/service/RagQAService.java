@@ -62,7 +62,7 @@ public class RagQAService {
                 activeDocumentFilter(projectFilter)
         );
 
-        // 只有真正检索到可用文本时才构造 RAG Prompt；无命中时走示例代码的通用大模型兜底。
+        // 只有真正检索到可用文本时才构造 RAG Prompt；无命中时走通用大模型兜底。
         boolean knowledgeHit = promptBuilder.hasUsableKnowledge(longMemory) || promptBuilder.hasUsableKnowledge(ragSegments);
         String prompt = knowledgeHit
                 ? promptBuilder.build(query, rewrittenQuery, shortMemory, longMemory, ragSegments)
@@ -78,7 +78,7 @@ public class RagQAService {
     }
 
     /**
-     * 统一解析会话标识，兼容 conversationId 和示例代码里的 memoryId。
+     * 统一解析会话标识，兼容 conversationId 和旧前端传入的 memoryId。
      */
     private String conversationId(RagQo qo) {
         if (StringUtils.hasText(qo.getConversationId())) {

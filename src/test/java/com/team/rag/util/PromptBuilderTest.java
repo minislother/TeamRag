@@ -29,8 +29,8 @@ class PromptBuilderTest {
     }
 
     @Test
-    @DisplayName("构建 RAG Prompt - 命中片段时使用示例格式")
-    void testBuild_KnowledgeHit_UseSamplePromptFormat() {
+    @DisplayName("构建 RAG Prompt - 命中片段时使用编号格式")
+    void testBuild_KnowledgeHit_UseNumberedPromptFormat() {
         // Given
         RetrievedSegment segment = RetrievedSegment.builder()
                 .text("缓存穿透可以通过缓存空值和布隆过滤器解决。")

@@ -21,7 +21,7 @@ public class PromptBuilder {
         StringBuilder context = new StringBuilder();
         context.append("以下是相关的团队知识库内容，请基于这些内容回答问题，若内容中无答案，请说明“知识库中未找到相关答案”，不要编造：\n");
 
-        // 示例代码把检索片段按 1、2、3 的格式直接拼进 Prompt；这里长期记忆也按同样格式加入。
+        // 检索片段按 1、2、3 的格式加入 Prompt，长期记忆也按同样格式合并。
         List<RetrievedSegment> knowledge = new ArrayList<>();
         addUsableSegments(knowledge, longMemory);
         addUsableSegments(knowledge, ragSegments);
@@ -29,7 +29,7 @@ public class PromptBuilder {
             context.append(String.format("%d、%s\n", i + 1, knowledge.get(i).getText()));
         }
 
-        // 短期记忆和查询重写是示例代码没有的扩展；只有存在内容时才加入，避免影响普通 RAG Prompt。
+        // 短期记忆和查询重写只有存在内容时才加入，避免影响普通 RAG Prompt。
         appendMessagesIfPresent(context, shortMemory);
         if (StringUtils.hasText(rewrittenQuery) && !rewrittenQuery.equals(originalQuery)) {
             context.append("\n检索用问题：").append(rewrittenQuery).append("\n");
@@ -39,7 +39,7 @@ public class PromptBuilder {
     }
 
     /**
-     * 知识库无命中时，按示例代码思路转通用大模型回答。
+     * 知识库无命中时，转为通用大模型回答。
      */
     public String buildGeneral(String originalQuery, String rewrittenQuery, List<ChatMessage> shortMemory) {
         return "请回答问题：" + originalQuery;

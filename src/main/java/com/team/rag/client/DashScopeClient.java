@@ -17,9 +17,8 @@ import java.util.List;
 /**
  * 阿里百炼 DashScope 模型客户端。
  *
- * <p>示例代码通过 LangChain4j 的模型对象调用 embedding 和 streaming chat。
- * 当前项目默认 chat model 是 glm-5，所以这里使用 LangChain4j 的 OpenAI-compatible
- * 模型类承接示例流程，同时保留现有 base URL / API Key 配置。</p>
+ * <p>当前项目默认 chat model 是 glm-5，因此这里使用 LangChain4j 的 OpenAI-compatible
+ * 模型类封装 embedding、非流式 chat 和 streaming chat 调用，同时保留现有 base URL / API Key 配置。</p>
  */
 @RequiredArgsConstructor
 public class DashScopeClient {
@@ -64,7 +63,7 @@ public class DashScopeClient {
     }
 
     /**
-     * 流式生成答案；RAG 最终回答和示例代码一样走流式大模型。
+     * 流式生成答案；RAG 最终回答默认走流式大模型。
      */
     public Flux<String> stream(String prompt) {
         if (!Boolean.TRUE.equals(properties.getDashscope().getStreamEnabled())) {
@@ -100,7 +99,7 @@ public class DashScopeClient {
     }
 
     /**
-     * 创建 LangChain4j embedding model，对应示例里的 text-embedding-v3。
+     * 创建 LangChain4j embedding model。
      */
     private OpenAiEmbeddingModel embeddingModel() {
         return OpenAiEmbeddingModel.builder()
@@ -124,7 +123,7 @@ public class DashScopeClient {
     }
 
     /**
-     * 创建流式 chat model，对应示例代码里的 streamingChatModel。
+     * 创建流式 chat model。
      */
     private OpenAiStreamingChatModel streamingChatModel() {
         return OpenAiStreamingChatModel.builder()

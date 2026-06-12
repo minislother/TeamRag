@@ -13,10 +13,10 @@ public class RagQo {
     @NotBlank(message = "query 不能为空")
     private String query;
 
-    /** 会话 ID，用于短期记忆；未传时会回退到示例代码里的 memoryId=1。 */
+    /** 会话 ID，用于短期记忆；未传时会回退到默认会话。 */
     private String conversationId;
 
-    /** 兼容参考代码里的 memoryId 字段。 */
+    /** 可选会话编号，用于兼容旧前端请求。 */
     private Long memoryId;
 
     /** 所属项目，可用于后续 metadata 过滤。 */

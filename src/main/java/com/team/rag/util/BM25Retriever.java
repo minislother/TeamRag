@@ -15,8 +15,8 @@ import java.util.Map;
 /**
  * BM25 + 向量混合检索工具。
  *
- * <p>参考代码里 BM25 是单独工具类。这里把 BM25 sparse 编码与 Pinecone hybrid query
- * 放在一起，让 Pinecone 按 dense/sparse 权重融合得分，避免从向量库全量拉文本。</p>
+ * <p>这里把 BM25 sparse 编码与 Pinecone hybrid query 放在一起，
+ * 让 Pinecone 按 dense/sparse 权重融合得分，避免从向量库全量拉文本。</p>
  */
 @Slf4j
 @Component

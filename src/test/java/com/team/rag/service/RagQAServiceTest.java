@@ -286,10 +286,8 @@ class RagQAServiceTest {
         ));
         RagQo qo = new RagQo();
         qo.setQuery("Redis 是什么");
-        when(shortTermMemoryService.getRecentMessages("1")).thenReturn(List.of());
+        when(shortTermMemoryService.getRecentMessages(new AccessControlService(properties).sessionScope("1", null))).thenReturn(List.of());
         when(queryRewriteService.rewrite(qo.getQuery(), List.of())).thenReturn(qo.getQuery());
-        ArgumentCaptor<Map<String, Object>> memoryFilterCaptor = ArgumentCaptor.forClass(Map.class);
-        when(longTermMemoryService.recall(eq(qo.getQuery()), memoryFilterCaptor.capture())).thenReturn(List.of());
         ArgumentCaptor<Map<String, Object>> documentFilterCaptor = ArgumentCaptor.forClass(Map.class);
         when(bm25Retriever.retrieve(eq(qo.getQuery()), eq(12), eq(properties.getPinecone().getNamespace()), documentFilterCaptor.capture()))
                 .thenReturn(List.of());
@@ -302,7 +300,7 @@ class RagQAServiceTest {
                 .expectNext("Redis 是内存数据库。")
                 .verifyComplete();
 
-        assertThat(memoryFilterCaptor.getValue()).containsEntry("project", Map.of("$in", List.of("infra", "docs")));
+        org.mockito.Mockito.verifyNoInteractions(longTermMemoryService);
         assertThat(documentFilterCaptor.getValue())
                 .containsEntry("status", Map.of("$eq", "ACTIVE"))
                 .containsEntry("project", Map.of("$in", List.of("infra", "docs")));

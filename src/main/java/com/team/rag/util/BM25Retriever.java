@@ -67,7 +67,7 @@ public class BM25Retriever {
             log.warn("Pinecone 索引不支持 sparse query，已使用客户端混合重排，candidateCount={}",
                     resolveFallbackCandidateCount(limit));
         }
-        log.info("混合检索完成，query={}, topK={}, hits={}", query, limit, segments.size());
+        log.info("混合检索完成，topK={}, hits={}", limit, segments.size());
         return segments;
     }
 

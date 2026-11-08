@@ -15,7 +15,8 @@ flowchart LR
 
 ## 生成信息
 - 生成时间：2026-06-04 20:09
-- 生成分支：非 Git 仓库
+- 当前维护分支：main
+- 运行链路与权限说明已按2026-11-08代码更新，最新总览见根目录README。
 
 ## 快速导航
 ### AI 生成文档（generated/）
@@ -34,3 +35,10 @@ AI Agent 进入项目时先读项目根目录 `AGENTS.md`，再按任务类型�
 ```text
 入口 AGENTS.md -> 本 README -> generated 技术事实 -> manual 团队补充
 ```
+
+## 当前设计入口
+- [根目录README](../../../README.md)：当前结构、功能、入库/问答链路和本机启动。
+- [记忆及权限边界](../../../docs/MEMORY_AND_ACCESS_DESIGN.md)：用户画像、租户绑定、角色权限、迁移与能力边界。
+- [分类分块](../../../docs/CHUNKING_STRATEGY.md)：结构解析、FAQ/制度/表格、父子检索。
+
+个人长期记忆不再与RAG证据混用。生产JDBC执行V1/V2/V3；认证模式固定部署租户，namespace按租户隔离，数据库拒绝其他租户混用。文档写入限ADMIN/EDITOR且新版本校验源/目标项目。

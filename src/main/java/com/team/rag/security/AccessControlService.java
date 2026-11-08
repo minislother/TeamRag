@@ -30,6 +30,23 @@ public class AccessControlService {
         return new AuthenticatedUser("local", "ADMIN", List.of("*"));
     }
 
+    /** 服务端部署租户边界；客户端不能通过 query/body/header 切换租户。 */
+    public String tenantId() { return properties.getSecurity().getTenantId(); }
+
+    public String memoryOwner() {
+        if (!securityEnabled()) return ""; // 匿名演示不沉淀共享个人画像。
+        return tenantId() + ":" + currentUser().username();
+    }
+
+    /** 用户、权限集合和项目共同限定工作记忆，权限收回后不复用旧摘要。 */
+    public String sessionScope(String session, String project) {
+        if (!securityEnabled()) return session;
+        AuthenticatedUser user = currentUser();
+        String acl = user.role() + ":" + user.projects().stream().sorted().toList();
+        String scope = tenantId() + "\n" + user.username() + "\n" + acl + "\n" + String.valueOf(project) + "\n" + session;
+        return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(scope.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
     public boolean securityEnabled() {
         return Boolean.TRUE.equals(properties.getSecurity().getEnabled());
     }
@@ -44,6 +61,13 @@ public class AccessControlService {
         }
         String normalizedProject = normalize(project);
         return user.projects().stream().map(this::normalize).anyMatch(normalizedProject::equals);
+    }
+
+    /** 读取与写入分权；只有管理员和编辑者能发布知识文档。 */
+    public void requireDocumentWrite() {
+        if (!securityEnabled()) return;
+        String role=currentUser().role();
+        if (!"ADMIN".equals(role) && !"EDITOR".equals(role)) throw new AccessDeniedException("当前角色没有文档写入权限");
     }
 
     public void requireProjectAccess(String project) {

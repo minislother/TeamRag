@@ -117,6 +117,7 @@ public class DocumentIngestionService {
     private Map<String, Object> buildMetadata(RagDocument document, DocumentVersion version) {
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("documentId", document.getId());
+        metadata.put("tenantId", properties.getSecurity().getTenantId());
         metadata.put("version", version.getVersion());
         metadata.put("status", DocumentStatus.ACTIVE.name());
         metadata.put("filename", document.getFilename());

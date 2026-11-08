@@ -55,11 +55,14 @@ public class DocumentService {
      * 文档上传并提交后台入库任务。
      */
     public DocumentUploadResponse uploadAndStore(DocumentForm form) {
+        accessControlService.requireDocumentWrite();
         MultipartFile file = form.getFile();
         validateFile(file);
         String originalFilename = file.getOriginalFilename() == null ? "unknown" : file.getOriginalFilename();
         String documentId = resolveDocumentId(form);
         RagDocument existing = documentRepository.findDocument(documentId).orElse(null);
+        // 更新版本必须同时有源文档与目标项目权限，不能改填 project 来接管别人的文档。
+        if (existing != null) accessControlService.requireProjectAccess(existing.getProject());
         String project = resolveProject(form, existing);
         accessControlService.requireProjectAccess(project);
         int version = documentRepository.nextVersion(documentId);

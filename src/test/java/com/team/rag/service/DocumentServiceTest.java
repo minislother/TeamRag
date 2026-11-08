@@ -427,6 +427,21 @@ class DocumentServiceTest {
         assertThat(response.getJobs().get(0).getUpdatedAt()).isEmpty();
     }
 
+
+    @Test @DisplayName("文档更新 - 改填目标项目不能接管无权文档")
+    void testUploadAndStore_ChangeProjectCannotBypassAcl() {
+        // Given
+        properties.getSecurity().setEnabled(true);
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                new AuthenticatedUser("editor","EDITOR",List.of("mine")),null,List.of()));
+        repository.saveDocument(RagDocument.builder().id("private").project("other").status(DocumentStatus.ACTIVE).build());
+        DocumentForm form=new DocumentForm();form.setDocumentId("private");form.setProject("mine");
+        form.setFile(new MockMultipartFile("file","test.txt","text/plain","正文".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        // When / Then
+        assertThatThrownBy(()->newService().uploadAndStore(form)).isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+        org.mockito.Mockito.verifyNoInteractions(storageService,ingestionWorker);
+    }
+
     private DocumentService newService() {
         return new DocumentService(storageService, repository, ingestionWorker, new AccessControlService(properties), properties);
     }

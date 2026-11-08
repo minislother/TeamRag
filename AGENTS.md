@@ -32,7 +32,9 @@ TeamRagKnowledgeBase 是一个 Spring Boot + DashScope/OpenAI 兼容模型 + Pin
 - 修改模型默认值时，同步检查 `application.properties`、`RagProperties`、`.env.example` 和前端展示文案。
 - `DocumentForm` 只有 `file` 是必填字段；`docType`、`project`、`tags`、`description` 是可选元数据。
 - 生产开启 `RAG_SECURITY_ENABLED=true` 时，必须设置强随机 `RAG_SECURITY_TOKEN_SECRET`，并按项目配置 `RAG_SECURITY_USERS`。
-- 生产使用 JDBC 生命周期仓储时，先执行 `src/main/resources/db/mysql/V1__document_lifecycle.sql`。
+- 生产使用 JDBC 生命周期仓储时，按顺序执行 `src/main/resources/db/mysql/` 下的 V1、V2、V3；已有表只执行缺失迁移。
+- 认证模式每个部署固定 `RAG_TENANT_ID`，使用独立生命周期数据库和原文存储范围；升级后重新登录，旧共享 namespace 不自动迁移。
+- 用户长期记忆与RAG证据分离；不得用客户端会话ID代替用户身份，个人记忆不能覆盖权限规则。
 - 前端静态资源修改后运行 `mvn process-resources`，避免启动中的应用仍加载旧资源。
 - 真实密钥和业务约定写到人工维护文档或本地配置时，要避免暴露到公开仓库。
 

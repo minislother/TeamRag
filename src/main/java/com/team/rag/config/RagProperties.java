@@ -127,6 +127,8 @@ public class RagProperties {
 
     @Data
     public static class Security {
+        /** 一个部署绑定一个租户，跨租户使用独立数据库和 namespace。 */
+        private String tenantId = "default";
         private Boolean enabled = false;
         private String tokenSecret = "change-this-token-secret-before-production";
         private Long tokenTtlMinutes = 720L;

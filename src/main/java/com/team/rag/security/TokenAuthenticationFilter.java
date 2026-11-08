@@ -24,6 +24,9 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
     private final RagProperties properties;
     private final SecurityTokenService tokenService;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private UserAccountService userAccounts;
+
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
@@ -37,6 +40,8 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
             AuthenticatedUser user;
             try {
                 user = tokenService.parse(token);
+                // 每次刷新服务端权限，角色/项目被收回后旧 Token 不继续保留旧权限。
+                if (userAccounts != null) user = userAccounts.requireUser(user.username()).toAuthenticatedUser();
             } catch (AuthenticationException ex) {
                 SecurityContextHolder.clearContext();
                 response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);

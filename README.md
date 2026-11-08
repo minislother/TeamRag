@@ -26,89 +26,111 @@ baituan 社团资料 RAG 智能知识库，面向社团介绍、社团章程、�
 
 ```text
 TeamRagKnowledgeBase/
-├── pom.xml
-├── .env.example
+├── pom.xml                         # Java 17 / Maven 依赖与测试配置
+├── .env.example                    # 可提交的配置模板；真实配置在被忽略的 .env
+├── AGENTS.md                       # 项目开发边界和专项规则
+├── docs/                           # 分块、记忆权限设计与评测说明
+├── knowledge-base/baituan-club-materials/ # 20份资料模板和 manifest.csv
+├── scripts/                        # 批量导入、评测和本地启动脚本
+├── src/main/java/com/team/rag/
+│   ├── TeamRagApplication.java      # 加载 .env 并启动
+│   ├── controller/                 # 认证、文档、流式问答、个人记忆治理 API
+│   ├── service/                    # 入库任务、原文存储、问答与记忆编排
+│   │   ├── DocumentService.java
+│   │   ├── DocumentIngestionWorker.java
+│   │   ├── DocumentIngestionService.java
+│   │   ├── RagQAService.java
+│   │   ├── QueryRewriteService.java
+│   │   ├── QueryFusionService.java
+│   │   ├── RerankService.java
+│   │   ├── ChunkContextExpander.java
+│   │   ├── ShortTermMemoryService.java
+│   │   └── UserLongTermMemoryService.java
+│   ├── util/                       # 结构解析、分类分块、稀疏编码及提示词
+│   │   ├── StructuredDocumentParser.java
+│   │   ├── AdaptiveChunker.java
+│   │   ├── SemanticSplitter.java
+│   │   ├── BM25Retriever.java
+│   │   └── PromptBuilder.java
+│   ├── client/                     # DashScope、Pinecone 外部调用适配
+│   ├── repository/                 # 内存/JDBC 生命周期仓储
+│   ├── security/                   # Token、账号、角色和项目授权
+│   ├── config/                     # 模型、JDBC、租户数据库绑定等配置
+│   └── bean/                       # 文档、分块、任务与接口对象
 ├── src/main/resources/
 │   ├── application.properties
-│   ├── static/
-│   └── db/mysql/V1__document_lifecycle.sql
-└── src/main/java/com/team/rag/
-    ├── TeamRagApplication.java
-    ├── bean/
-    │   ├── DocumentForm.java
-    │   ├── RagQo.java
-    │   ├── DocumentUploadResponse.java
-    │   ├── DocumentSegment.java
-    │   ├── RetrievedSegment.java
-    │   ├── ChatMessage.java
-    │   └── SparseVector.java
-    ├── config/
-    │   ├── DotenvApplicationListener.java
-    │   ├── EmbeddingConfig.java
-    │   ├── PineconeConfig.java
-    │   ├── RAGConfig.java
-    │   └── RagProperties.java
-    ├── client/
-    │   ├── DashScopeClient.java
-    │   └── PineconeClient.java
-    ├── repository/
-    │   ├── DocumentLifecycleRepository.java
-    │   ├── InMemoryDocumentLifecycleRepository.java
-    │   └── JdbcDocumentLifecycleRepository.java
-    ├── util/
-    │   ├── SemanticSplitter.java
-    │   ├── BM25SparseEncoder.java
-    │   ├── BM25Retriever.java
-    │   ├── PromptBuilder.java
-    │   ├── RagEvaluationMetrics.java
-    │   └── RagAnswerJudgePromptBuilder.java
-    ├── service/
-    │   ├── DocumentService.java
-    │   ├── DocumentIngestionWorker.java
-    │   ├── RagQAService.java
-    │   ├── ShortTermMemoryService.java
-    │   ├── QueryRewriteService.java
-    │   └── LongTermMemoryService.java
-    ├── controller/
-    │   ├── AuthController.java
-    │   ├── DocumentController.java
-    │   ├── RagQAController.java
-    │   └── GlobalExceptionHandler.java
-    └── security/
-        ├── AccessControlService.java
-        ├── SecurityTokenService.java
-        ├── TokenAuthenticationFilter.java
-        └── UserAccountService.java
+│   ├── static/                     # 原生 HTML/CSS/JS 上传与聊天界面
+│   └── db/mysql/                   # V1生命周期、V2旧记忆、V3画像与租户绑定
+├── src/test/java/                  # 单元测试及可选浏览器集成测试
+└── data/                           # 本地原文、数据库及升级备份；不提交
 ```
 
-## 核心流程
+## 已实现功能
 
-文档上传：
+| 能力 | 当前实现 |
+|---|---|
+| 资料管理 | 文件上传、可选元数据、内容哈希去重、版本、异步任务、状态查询、失败恢复 |
+| 原文存储 | 本地文件或 S3 兼容存储；生命周期支持内存/JDBC |
+| 结构与分类分块 | 保留标题路径、可解析页码、时间、项目权限；FAQ按问题细分、制度按章节段落、表格独立；超长块按token预算兜底 |
+| 检索 | dense+sparse混合检索；不支持稀疏查询时客户端混排；原始/改写查询的RRF融合、模型精排及条件父子块扩展 |
+| 问答 | 查询重写、受预算约束的证据组装、glm-5流式回答、知识未命中显式提示 |
+| 工作记忆 | Redis滑动窗口及摘要；Redis不可用时进程内降级，7天过期 |
+| 用户长期记忆 | 认证用户跨会话画像；显式写入、结构化键覆盖、有限版本、TTL、查看/修改/删除/导出/暂停API；JDBC持久化 |
+| 认证与隔离 | 服务端固定租户、租户Token与namespace、数据库绑定、角色写权限、项目预过滤、用户/项目/权限限定会话 |
+| 前端 | 上传、新版本、类型选择说明、任务状态、登录和流式聊天；个人记忆治理暂通过API |
 
-1. 上传社团资料文件和元数据：资料类型、所属项目/社团、标签、描述。
-2. Apache Tika 解析文档文本。
-3. 添加 metadata。
-4. `SemanticSplitter` 先基础切分，再用 embedding 余弦相似度合并语义块。
-5. `text-embedding-v3` 向量化语义块。
-6. `BM25SparseEncoder` 生成 sparse vector。
-7. 写入 Pinecone，metadata 中保留原始文本。
+范围说明：当前为单JVM、每部署一个租户。不是同一进程多租户路由；未实现段落级ACL、字段DLP、合规不可篡改审计及多Agent共享记忆。扫描件或缺失结构的PDF受解析器能力限制，页码不虚构。详见 [记忆与权限设计](docs/MEMORY_AND_ACCESS_DESIGN.md) 和 [分块策略](docs/CHUNKING_STRATEGY.md)。
 
-问答：
+## 文档入库链路
 
-1. 读取 Redis 短期记忆。
-2. 基于短期记忆做 Query Rewriting。
-3. 从长期记忆 namespace 召回相关事实。
-4. 对改写查询同时生成 dense vector 和 sparse vector。
-5. Pinecone hybrid query 融合语义检索与 BM25 关键词检索。
-6. 开启安全时，根据用户可访问项目给长期记忆和文档检索追加 metadata filter。
-7. 融合短期记忆、长期记忆、RAG 片段和用户输入构建提示词。
-8. 调用 glm-5 流式输出答案。
-9. 答案完成后更新短期记忆。
+```mermaid
+flowchart TD
+ A[上传文件及可选元数据] --> B[认证及角色校验
+校验原文档与目标项目权限]
+ B --> C[保存原文并计算哈希]
+ C --> D{活动版本内容相同?}
+ D -->|是| E[跳过重复入库]
+ D -->|否| F[创建PROCESSING版本及入库任务]
+ F --> G[后台解析标题、页边界、表格]
+ G --> H[按资料类型分块
+保留metadata及父子关系]
+ H --> I[正文加检索标题等元数据
+Embedding及BM25稀疏编码]
+ I --> J[写入租户Pinecone namespace]
+ J --> K[保存分块原文及metadata
+新版本切换ACTIVE]
+ K --> L[清理被替代版本的向量]
+```
 
-兜底回答：
+`DocumentController → DocumentService → DocumentIngestionWorker → DocumentIngestionService` 为主调用链。模型和向量库调用集中于 `DashScopeClient`、`PineconeClient`。失败任务记录错误并由恢复机制重试；MySQL和Pinecone之间没有跨系统分布式事务，不应宣称全链路原子提交。
 
-- 如果长期记忆和文档知识库都没有召回到可用片段，系统会转为通用大模型回答。
-- 通用兜底答案会先标注“社团资料知识库未命中”，避免把通用模型推理误认为 baituan 社团资料事实。
+结构解析之后，短章节完整保留，普通长章节寻找语义边界；FAQ采用更小预算，制度优先段落边界，表格不混入普通正文。超长内容标记 `HARD_LIMIT`，保存版本绑定的 `parentId`、顺序及标准化UTF-16偏移。默认500代理tokens、FAQ最多200、兜底overlap50；计数器不是GLM原生tokenizer。
+
+## 用户问答链路
+
+```mermaid
+flowchart TD
+ A[用户问题及会话ID] --> B[认证、租户和项目授权]
+ B --> C[用户+权限+项目限定的工作记忆]
+ C --> D[查询重写]
+ D --> E[原始及改写查询混合召回
+租户namespace与ACTIVE/项目预过滤]
+ E --> F[RRF融合候选]
+ F --> G[模型Rerank并选取TopK]
+ G --> H[预算内恢复父块或相邻块
+同版本同父块按偏移去重]
+ H --> I{文档证据是否命中?}
+ I -->|是| J[知识库提示词]
+ I -->|否| K[通用回答提示词
+显式标注知识库未命中]
+ J --> L[追加独立用户个性化记忆]
+ K --> L
+ L --> M[glm-5流式输出]
+ M --> N[流结束后更新工作记忆
+仅明确长期请求写个人记忆]
+```
+
+`RagQAController → RagQAService` 负责问答编排，`QueryRewriteService / QueryFusionService / BM25Retriever / RerankService / ChunkContextExpander / PromptBuilder` 分别负责各阶段。个人记忆不能充当制度证据、覆盖权限或把“无文档命中”变成“知识库命中”。认证模式不读取旧的来源不明公共memory namespace。默认文档证据预算3000代理tokens，不包含完整提示词、工作记忆和输出预算。
 
 ## 社团资料种子库
 
@@ -167,7 +189,7 @@ PINECONE_REGION=us-east-1
 
 生产建议至少开启 JDBC 生命周期仓储、对象存储和登录认证。
 
-MySQL 表结构在 `src/main/resources/db/mysql/V1__document_lifecycle.sql`。当前项目没有引入 Flyway 自动迁移，生产部署前需要先在目标库执行该 SQL。
+MySQL表结构位于 `src/main/resources/db/mysql/`。当前没有Flyway自动迁移，新部署按顺序执行V1、V2、V3；已有V1/V2的部署只执行缺失的V3，勿重复执行CREATE TABLE。
 
 ```properties
 # 文档生命周期持久化
@@ -336,5 +358,26 @@ team-rag.service
 - 中文分词可替换为 IK / jieba，提高 BM25 sparse token 质量。
 - 对文档列表和入库任务增加分页、批量删除、重建索引、审计日志。
 - Redis 短期记忆可扩展为滑动窗口 + 摘要 + 用户画像。
-- 长期记忆可增加主动录入接口，写入 `team-rag-memory` namespace，并沿用项目权限 metadata。
+- 个人记忆已有独立治理API与JDBC持久化；后续可增加前端治理面板与经过评测的经历语义召回。
 - 增加接口限流、熔断、ELK 日志和 Prometheus 指标。
+
+
+### 用户记忆与租户部署边界
+
+用户个人记忆与文档证据分离，支持认证用户查看、覆盖、删除、导出与暂停。文档写入需要 ADMIN/EDITOR；USER 仅按项目授权读取。启用认证后 Token、工作记忆和 Pinecone namespace 均绑定部署租户，升级需重新登录及重新入库。
+
+生产 JDBC 部署须执行 `src/main/resources/db/mysql/V3__memory_profiles.sql`（在 V1/V2 之后），配置 `RAG_TENANT_ID`，为各租户分配独立数据库和原文存储目录/桶前缀。当前为单 JVM、单租户部署模式；个人记忆在无 JDBC 时只保存在进程内。完整对照、接口和未实现的企业能力见 [记忆与权限设计](docs/MEMORY_AND_ACCESS_DESIGN.md)。
+
+
+## 本机升级后的启动方式
+
+2026-11-08本机已建立项目独立MySQL实例（`127.0.0.1:3307`），数据库 `team_rag_baituan`，执行V1–V3，应用启用认证并切换JDBC，租户为 `baituan`。此段是本机运行记录，不是其他部署的默认参数。
+
+```powershell
+# 自动检查/启动已初始化的项目数据库，然后启动应用
+powershell -ExecutionPolicy Bypass -File scripts/start-local.ps1
+```
+
+应用地址为 `http://localhost:8080`。管理员用户名为 `admin`；生成的随机登录密码保存在本地 `.env` 的 `RAG_SECURITY_USERS`（格式为用户名:密码:角色:项目），不在文档中公开。应用只用专属DML账号，不使用MySQL root。数据库管理员恢复信息仅在被忽略的 `data/mysql-local-admin.env`。此独立数据库由脚本启动，不是Windows自动启动服务；不要删除 `data/mysql-local`。
+
+凭据、原文和数据库不会随Git发布。新电脑需自行准备MySQL并按 `.env.example` 配置。旧进程内任务未迁移为数据库文档；旧记忆无法可靠归属用户，未自动迁移。知识向量仍需重新入库，先前百炼账户欠费问题属于外部依赖，不由数据库升级解决。

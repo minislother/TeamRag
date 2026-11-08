@@ -36,6 +36,8 @@ public class SecurityTokenService {
         if (!Boolean.TRUE.equals(properties.getSecurity().getEnabled())) {
             return;
         }
+        String tenant = properties.getSecurity().getTenantId();
+        if (tenant == null || !tenant.matches("[A-Za-z0-9_-]{1,64}")) throw new IllegalStateException("RAG_TENANT_ID 格式无效");
         String secret = properties.getSecurity().getTokenSecret();
         if (!StringUtils.hasText(secret) || secret.length() < 32 || secret.startsWith("change-this")) {
             throw new IllegalStateException("RAG_SECURITY_TOKEN_SECRET must be set to a strong custom value when security is enabled");
@@ -48,6 +50,7 @@ public class SecurityTokenService {
         Map<String, Object> header = Map.of("alg", "HS256", "typ", "JWT");
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("sub", user.username());
+        payload.put("tenant", properties.getSecurity().getTenantId());
         payload.put("role", user.role());
         payload.put("projects", user.projects());
         payload.put("iat", now.getEpochSecond());
@@ -68,6 +71,9 @@ public class SecurityTokenService {
                 throw new BadCredentialsException("无效登录凭证");
             }
             Map<String, Object> payload = objectMapper.readValue(decode(parts[1]), MAP_TYPE);
+            if (!properties.getSecurity().getTenantId().equals(payload.get("tenant"))) {
+                throw new BadCredentialsException("登录凭证租户不匹配");
+            }
             long exp = ((Number) payload.getOrDefault("exp", 0)).longValue();
             if (Instant.now().getEpochSecond() >= exp) {
                 throw new BadCredentialsException("登录已过期");

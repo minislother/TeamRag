@@ -34,11 +34,16 @@ public class ShortTermMemoryService {
     private final DashScopeClient dashScopeClient;
     private final RagProperties properties;
     private final Map<String, List<ChatMessage>> fallbackStore = new ConcurrentHashMap<>();
+    private final Map<String, java.time.Instant> fallbackExpiry = new ConcurrentHashMap<>();
 
     /**
      * 获取当前会话短期记忆。
      */
     public List<ChatMessage> getRecentMessages(String conversationId) {
+        java.time.Instant expires=fallbackExpiry.get(conversationId);
+        if(expires!=null && !expires.isAfter(java.time.Instant.now())) {
+            fallbackStore.remove(conversationId);fallbackExpiry.remove(conversationId);
+        }
         try {
             String raw = redisTemplate.opsForValue().get(key(conversationId));
             if (raw == null || raw.isBlank()) {
@@ -102,6 +107,7 @@ public class ShortTermMemoryService {
      */
     private void persist(String conversationId, List<ChatMessage> messages) {
         fallbackStore.put(conversationId, new ArrayList<>(messages));
+        fallbackExpiry.put(conversationId,java.time.Instant.now().plus(Duration.ofDays(7)));
         try {
             redisTemplate.opsForValue().set(key(conversationId), objectMapper.writeValueAsString(messages), Duration.ofDays(7));
         } catch (Exception ex) {

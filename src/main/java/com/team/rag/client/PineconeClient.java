@@ -37,6 +37,13 @@ public class PineconeClient {
     /**
      * 批量写入文档语义块。
      */
+    private String tenantNamespace(String namespace) {
+        if (!Boolean.TRUE.equals(properties.getSecurity().getEnabled())) return namespace;
+        String tenant = properties.getSecurity().getTenantId();
+        if (tenant == null || !tenant.matches("[A-Za-z0-9_-]{1,64}")) throw new IllegalStateException("Invalid tenant ID");
+        return namespace + "--tenant-" + tenant;
+    }
+
     public void upsert(String namespace, List<VectorRecord> records) {
         requireConfig();
         if (records == null || records.isEmpty()) {
@@ -57,7 +64,7 @@ public class PineconeClient {
         }).toList();
 
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("namespace", namespace);
+        payload.put("namespace", tenantNamespace(namespace));
         payload.put("vectors", vectors);
 
         webClient.post()
@@ -83,7 +90,7 @@ public class PineconeClient {
     public List<RetrievedSegment> query(String namespace, float[] denseVector, SparseVector sparseVector, int topK, double alpha, double minScore, Map<String, Object> filter) {
         requireConfig();
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("namespace", namespace);
+        payload.put("namespace", tenantNamespace(namespace));
         payload.put("topK", topK);
         payload.put("includeMetadata", true);
         payload.put("vector", scaleDense(denseVector, alpha));
@@ -119,7 +126,7 @@ public class PineconeClient {
                                              Map<String, Object> filter) {
         requireConfig();
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("namespace", namespace);
+        payload.put("namespace", tenantNamespace(namespace));
         payload.put("topK", topK);
         payload.put("includeMetadata", true);
         payload.put("vector", toDoubleList(denseVector));
@@ -179,7 +186,7 @@ public class PineconeClient {
             return;
         }
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("namespace", namespace);
+        payload.put("namespace", tenantNamespace(namespace));
         payload.put("ids", ids);
 
         webClient.post()

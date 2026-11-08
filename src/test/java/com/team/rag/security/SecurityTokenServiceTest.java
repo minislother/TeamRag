@@ -100,4 +100,15 @@ class SecurityTokenServiceTest {
     private String encode(byte[] value) {
         return Base64.getUrlEncoder().withoutPadding().encodeToString(value);
     }
+
+    @Test
+    @DisplayName("跨租户 Token - 即使共享签名密钥也拒绝")
+    void testParse_OtherTenant_Reject() {
+        // Given
+        RagProperties first=propertiesWithStrongSecret();first.getSecurity().setTenantId("tenant-a");
+        RagProperties second=propertiesWithStrongSecret();second.getSecurity().setTenantId("tenant-b");
+        String token=new SecurityTokenService(first,new ObjectMapper()).issue(new AuthenticatedUser("alice","ADMIN",List.of("*")));
+        // When / Then
+        assertThatThrownBy(()->new SecurityTokenService(second,new ObjectMapper()).parse(token)).isInstanceOf(BadCredentialsException.class);
+    }
 }

@@ -13,6 +13,7 @@ import com.team.rag.config.RagProperties;
 import com.team.rag.repository.DocumentLifecycleRepository;
 import com.team.rag.util.BM25SparseEncoder;
 import com.team.rag.util.SemanticSplitter;
+import com.team.rag.util.RetrievalTextBuilder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.tika.Tika;
@@ -57,20 +58,24 @@ public class DocumentIngestionService {
                     .orElseThrow(() -> new IllegalArgumentException("文档版本不存在：" + job.getDocumentId() + "#" + job.getVersion()));
             List<DocumentVersion> previousActiveVersions = activeVersionsBefore(job);
 
-            String text = parse(version);
+            String text = parse(version, document.getFilename());
             Map<String, Object> metadata = buildMetadata(document, version);
-            List<DocumentSegment> segments = semanticSplitter.split(document.getId(), text, metadata);
+            List<DocumentSegment> segments = semanticSplitter.splitAdaptive(document.getId(), text, metadata);
             if (segments.isEmpty()) {
                 throw new IllegalArgumentException("文档未生成有效语义块");
             }
 
-            List<String> segmentTexts = segments.stream().map(DocumentSegment::getText).toList();
+            // 标题、文件名、类型和标签参与向量表达，正文仍保持原样用于回答展示。
+            List<String> segmentTexts = segments.stream()
+                    .map(segment -> RetrievalTextBuilder.build(segment.getText(), segment.getMetadata()))
+                    .toList();
             List<float[]> embeddings = dashScopeClient.embed(segmentTexts);
             List<PineconeClient.VectorRecord> records = new ArrayList<>();
             List<StoredDocumentChunk> chunks = new ArrayList<>();
             for (int i = 0; i < segments.size(); i++) {
                 DocumentSegment segment = segments.get(i);
-                SparseVector sparseVector = sparseEncoder.encode(segment.getText());
+                SparseVector sparseVector = sparseEncoder.encode(
+                        RetrievalTextBuilder.build(segment.getText(), segment.getMetadata()));
                 records.add(new PineconeClient.VectorRecord(segment.getId(), embeddings.get(i), sparseVector, segment.getMetadata()));
                 chunks.add(StoredDocumentChunk.builder()
                         .id(segment.getId())
@@ -96,9 +101,12 @@ public class DocumentIngestionService {
         }
     }
 
-    private String parse(DocumentVersion version) throws Exception {
+    private String parse(DocumentVersion version, String filename) throws Exception {
         try (InputStream inputStream = storageService.open(version.getFilePath())) {
-            String text = tika.parseToString(inputStream);
+            String extension = filename == null ? "" : filename.toLowerCase(java.util.Locale.ROOT);
+            String text = extension.matches(".*\\.(pdf|docx?|xlsx?|html?)$")
+                    ? com.team.rag.util.StructuredDocumentParser.parse(inputStream, filename)
+                    : tika.parseToString(inputStream);
             if (!StringUtils.hasText(text)) {
                 throw new IllegalArgumentException("文档未解析出有效文本");
             }
@@ -112,13 +120,25 @@ public class DocumentIngestionService {
         metadata.put("version", version.getVersion());
         metadata.put("status", DocumentStatus.ACTIVE.name());
         metadata.put("filename", document.getFilename());
+        metadata.put("documentTitle", documentTitle(document.getFilename()));
         metadata.put("docType", document.getDocType());
         metadata.put("project", document.getProject());
         metadata.put("tags", document.getTags());
         metadata.put("description", document.getDescription());
         metadata.put("fileHash", version.getFileHash());
         metadata.put("uploadedAt", version.getCreatedAt().toString());
+        metadata.put("updatedAt", (document.getUpdatedAt() == null ? version.getCreatedAt() : document.getUpdatedAt()).toString());
+        // 权限标签来自已校验的项目归属，不能让上传者通过普通 tags 覆盖访问权限。
+        metadata.put("permissionTags", List.of("project:" + document.getProject()));
         return metadata;
+    }
+
+    private String documentTitle(String filename) {
+        if (!StringUtils.hasText(filename)) {
+            return "";
+        }
+        int extension = filename.lastIndexOf('.');
+        return extension > 0 ? filename.substring(0, extension) : filename;
     }
 
     private List<DocumentVersion> activeVersionsBefore(IngestionJob job) {

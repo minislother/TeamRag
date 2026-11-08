@@ -1,8 +1,8 @@
 # TeamRagKnowledgeBase
 
-团队 RAG 智能知识库，面向项目资料管理、研发规范查询和新人培训问答场景。
+baituan 社团资料 RAG 智能知识库，面向社团介绍、社团章程、招新材料、活动指引、预算报销、安全预案和活动复盘等资料的管理与问答场景。
 
-项目采用 `config / service / util / bean / controller` 分层，包含短期记忆、查询重写、长期记忆召回和 Pinecone dense + sparse hybrid 检索流程。
+项目采用 `config / service / util / bean / controller` 分层，包含短期记忆、查询重写、长期记忆召回和 Pinecone dense + sparse hybrid 检索流程。当前默认业务内容已切换为 baituan 社团资料知识库。
 
 ## 技术选型
 
@@ -59,7 +59,9 @@ TeamRagKnowledgeBase/
     │   ├── SemanticSplitter.java
     │   ├── BM25SparseEncoder.java
     │   ├── BM25Retriever.java
-    │   └── PromptBuilder.java
+    │   ├── PromptBuilder.java
+    │   ├── RagEvaluationMetrics.java
+    │   └── RagAnswerJudgePromptBuilder.java
     ├── service/
     │   ├── DocumentService.java
     │   ├── DocumentIngestionWorker.java
@@ -83,7 +85,7 @@ TeamRagKnowledgeBase/
 
 文档上传：
 
-1. 上传文件和元数据：文档类型、所属项目、标签、描述。
+1. 上传社团资料文件和元数据：资料类型、所属项目/社团、标签、描述。
 2. Apache Tika 解析文档文本。
 3. 添加 metadata。
 4. `SemanticSplitter` 先基础切分，再用 embedding 余弦相似度合并语义块。
@@ -106,7 +108,37 @@ TeamRagKnowledgeBase/
 兜底回答：
 
 - 如果长期记忆和文档知识库都没有召回到可用片段，系统会转为通用大模型回答。
-- 通用兜底答案会先标注“知识库未命中”，避免把通用模型推理误认为团队知识库事实。
+- 通用兜底答案会先标注“社团资料知识库未命中”，避免把通用模型推理误认为 baituan 社团资料事实。
+
+## 社团资料种子库
+
+项目内置了一批可直接入库的 baituan 社团资料，位置：
+
+```text
+knowledge-base/baituan-club-materials/
+```
+
+资料覆盖：
+
+- 社团介绍、社团基础信息模板、社团章程模板。
+- 入驻认证、招新、活动立项、场地物资、预算报销流程。
+- 活动安全预案、工作人员分工、宣传发布、会员管理、换届流程。
+- 活动签到数据统计、星级评定、FAQ、活动方案、复盘模板、权限规范。
+
+启动项目后可以批量上传种子资料：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/import-baituan-club-knowledge.ps1 `
+  -BaseUrl "http://localhost:8080"
+```
+
+如果开启了登录认证，可附带 Token：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/import-baituan-club-knowledge.ps1 `
+  -BaseUrl "http://localhost:8080" `
+  -Token "your-jwt-token"
+```
 
 ## 配置
 
@@ -165,7 +197,7 @@ RAG_INGESTION_RECOVERY_BATCH_SIZE=20
 RAG_SECURITY_ENABLED=true
 RAG_SECURITY_TOKEN_SECRET=replace-with-at-least-32-random-characters
 RAG_SECURITY_TOKEN_TTL_MINUTES=720
-RAG_SECURITY_USERS=admin:{bcrypt}xxxx:ADMIN:*;alice:{bcrypt}yyyy:USER:infra|docs
+RAG_SECURITY_USERS=admin:{bcrypt}xxxx:ADMIN:*;alice:{bcrypt}yyyy:USER:baituan|skating-club
 ```
 
 `RAG_SECURITY_USERS` 的格式是：
@@ -203,10 +235,10 @@ http://localhost:8080/
 
 ```powershell
 curl -X POST "http://localhost:8080/api/document/upload" `
-  -F "file=@D:\docs\Redis开发规范.pdf" `
-  -F "docType=研发规范" `
+  -F "file=@D:\docs\轮滑社社团章程.md" `
+  -F "docType=社团章程" `
   -F "project=baituan" `
-  -F "tags=Redis,缓存,规范"
+  -F "tags=社团,章程,组织架构"
 ```
 
 RAG 问答：
@@ -214,7 +246,7 @@ RAG 问答：
 ```powershell
 curl -N -X POST "http://localhost:8080/api/rag/qa" `
   -H "Content-Type: application/json" `
-  -d "{\"query\":\"Redis 缓存穿透如何解决？\",\"conversationId\":\"demo\",\"project\":\"baituan\"}"
+  -d "{\"query\":\"社团招新活动需要提前准备哪些材料？\",\"conversationId\":\"demo\",\"project\":\"baituan\"}"
 ```
 
 ## CI/CD
@@ -298,6 +330,8 @@ team-rag.service
 如果要做到真正自动部署到服务器，需要在 Gitee Go 中继续配置主机组或部署凭证，然后让部署步骤调用 `scripts/deploy.sh`。
 
 ## 生产优化
+
+分块基准选型、实验指标与重排配置见 [分块评测集与召回后重排](docs/chunking-benchmarks-and-reranking.md)。文档召回默认使用 `gte-rerank-v2`：先召回 12 个候选，再取最终 topK（默认 6）；重排失败自动回退混合召回顺序。
 
 - 中文分词可替换为 IK / jieba，提高 BM25 sparse token 质量。
 - 对文档列表和入库任务增加分页、批量删除、重建索引、审计日志。

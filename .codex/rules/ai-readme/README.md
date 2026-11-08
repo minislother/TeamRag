@@ -1,7 +1,7 @@
 # AI README - 项目规则入口
 
 ## 项目总览
-TeamRagKnowledgeBase 是一个面向团队资料管理、研发规范查询和新人培训问答的 Spring Boot RAG 知识库，核心能力是文档入库、语义分块、DashScope embedding、Pinecone hybrid 检索和 glm-5 流式问答。
+TeamRagKnowledgeBase 是一个面向 baituan 社团资料管理与问答的 Spring Boot RAG 知识库，核心能力是社团资料入库、语义分块、DashScope embedding、Pinecone hybrid 检索和 glm-5 流式问答。
 
 ```mermaid
 flowchart LR

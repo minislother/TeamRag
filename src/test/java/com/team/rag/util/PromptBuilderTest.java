@@ -1,7 +1,7 @@
 package com.team.rag.util;
 
-import com.team.rag.bean.RetrievedSegment;
 import com.team.rag.bean.ChatMessage;
+import com.team.rag.bean.RetrievedSegment;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -47,7 +47,7 @@ class PromptBuilderTest {
 
         // Then
         assertThat(prompt)
-                .startsWith("以下是相关的团队知识库内容")
+                .startsWith("以下是相关的社团资料知识库内容")
                 .contains("1、缓存穿透可以通过缓存空值和布隆过滤器解决。")
                 .endsWith("用户问题：Redis 缓存穿透如何解决");
     }
@@ -74,6 +74,25 @@ class PromptBuilderTest {
                 .contains("短期会话记忆")
                 .contains("检索用问题：Redis 缓存穿透怎么解决")
                 .contains("用户问题：它怎么解决");
+    }
+
+    @Test
+    @DisplayName("构建通用兜底 Prompt - 知识库无命中时明确回答边界")
+    void testBuildGeneral_NoKnowledgeHit_DeclareAnswerBoundary() {
+        // Given
+        List<ChatMessage> memory = List.of(new ChatMessage("user", "Redis 缓存穿透是什么"));
+
+        // When
+        String prompt = promptBuilder.buildGeneral("那在项目里怎么处理", "Redis 缓存穿透在项目里怎么处理", memory);
+
+        // Then
+        assertThat(prompt)
+                .contains("社团资料知识库未命中，以下回答基于通用知识，仅供参考")
+                .contains("不要编造")
+                .contains("短期会话记忆")
+                .contains("user: Redis 缓存穿透是什么")
+                .contains("检索用问题：Redis 缓存穿透在项目里怎么处理")
+                .contains("用户问题：那在项目里怎么处理");
     }
 
     @Test

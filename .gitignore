@@ -5,3 +5,11 @@ target/
 *.iml
 *.log
 .DS_Store
+
+# 本地运行数据、评测缓存及对话导出不发布
+data/
+**/__pycache__/
+.codex-docx-render-*/
+docs/reindex-*.json
+docs/gpt-chunking-conversation.txt
+*.docx

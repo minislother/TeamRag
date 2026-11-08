@@ -83,7 +83,7 @@ class DocumentIngestionServiceTest {
                 .text("Redis 缓存穿透解决方案")
                 .metadata(Map.of("text", "Redis 缓存穿透解决方案", "status", "ACTIVE"))
                 .build();
-        when(semanticSplitter.split(eq("doc-1"), eq("Redis 缓存穿透解决方案"), anyMap()))
+        when(semanticSplitter.splitAdaptive(eq("doc-1"), eq("Redis 缓存穿透解决方案"), anyMap()))
                 .thenReturn(List.of(segment));
         when(dashScopeClient.embed(List.of("Redis 缓存穿透解决方案")))
                 .thenReturn(List.of(new float[]{0.1f, 0.2f}));
@@ -130,7 +130,7 @@ class DocumentIngestionServiceTest {
         prepareDocument("job-1", file);
         DocumentIngestionService service = newService();
         when(tika.parseToString(any(InputStream.class))).thenReturn("Redis");
-        when(semanticSplitter.split(eq("doc-1"), eq("Redis"), anyMap())).thenReturn(List.of());
+        when(semanticSplitter.splitAdaptive(eq("doc-1"), eq("Redis"), anyMap())).thenReturn(List.of());
 
         // When
         service.ingest("job-1");
@@ -218,7 +218,7 @@ class DocumentIngestionServiceTest {
                 .text("Redis cache update guide")
                 .metadata(Map.of("text", "Redis cache update guide", "status", "ACTIVE"))
                 .build();
-        when(semanticSplitter.split(eq("doc-1"), eq("Redis cache update guide"), anyMap()))
+        when(semanticSplitter.splitAdaptive(eq("doc-1"), eq("Redis cache update guide"), anyMap()))
                 .thenReturn(List.of(segment));
         when(dashScopeClient.embed(List.of("Redis cache update guide")))
                 .thenReturn(List.of(new float[]{0.3f, 0.4f}));

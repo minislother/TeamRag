@@ -6,7 +6,7 @@ import lombok.Data;
 import java.time.OffsetDateTime;
 
 /**
- * 团队知识库中的文档主记录。
+ * 社团资料知识库中的文档主记录。
  */
 @Data
 @Builder

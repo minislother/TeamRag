@@ -16,6 +16,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @DisplayName("BM25 混合检索工具单元测试")
@@ -110,5 +111,64 @@ class BM25RetrieverTest {
 
         // Then
         assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("执行混合检索 - 索引不支持稀疏查询时使用客户端混合重排")
+    void testRetrieve_SparseQueryUnsupported_RerankDenseCandidatesWithBm25() {
+        // Given - 准备一个语义分更高、一个关键词分更高的候选片段。
+        RagProperties properties = new RagProperties();
+        BM25Retriever retriever = new BM25Retriever(sparseEncoder, dashScopeClient, pineconeClient, properties);
+        SparseVector querySparse = new SparseVector(List.of(1), List.of(1.0));
+        SparseVector semanticSparse = new SparseVector(List.of(2), List.of(1.0));
+        SparseVector keywordSparse = new SparseVector(List.of(1), List.of(1.0));
+        float[] denseVector = new float[]{0.1f, 0.2f};
+        RetrievedSegment semanticCandidate = RetrievedSegment.builder()
+                .id("semantic")
+                .text("语义相关但没有关键词")
+                .score(0.95D)
+                .metadata(Map.of())
+                .build();
+        RetrievedSegment keywordCandidate = RetrievedSegment.builder()
+                .id("keyword")
+                .text("包含精确关键词")
+                .score(0.40D)
+                .metadata(Map.of())
+                .build();
+        when(sparseEncoder.encode("Redis 缓存穿透")).thenReturn(querySparse);
+        when(sparseEncoder.encode(semanticCandidate.getText())).thenReturn(semanticSparse);
+        when(sparseEncoder.encode(keywordCandidate.getText())).thenReturn(keywordSparse);
+        when(dashScopeClient.embedOne("Redis 缓存穿透")).thenReturn(denseVector);
+        when(pineconeClient.query(
+                eq("team-rag-documents"),
+                eq(denseVector),
+                eq(querySparse),
+                eq(2),
+                eq(properties.getHybrid().getAlpha()),
+                eq(properties.getHybrid().getMinScore()),
+                eq(Map.of())
+        )).thenThrow(new PineconeClient.SparseQueryUnsupportedException("不支持稀疏查询", null));
+        when(pineconeClient.queryDense(
+                eq("team-rag-documents"),
+                eq(denseVector),
+                eq(16),
+                eq(-Double.MAX_VALUE),
+                eq(Map.of())
+        )).thenReturn(List.of(semanticCandidate, keywordCandidate));
+
+        // When - 执行降级后的客户端混合重排。
+        List<RetrievedSegment> result = retriever.retrieve("Redis 缓存穿透", 2, "team-rag-documents");
+
+        // Then - BM25 精确命中参与加权后，关键词候选排到第一位。
+        assertThat(result).extracting(RetrievedSegment::getId)
+                .containsExactly("keyword", "semantic");
+        assertThat(result.get(0).getScore()).isGreaterThan(result.get(1).getScore());
+        verify(pineconeClient).queryDense(
+                "team-rag-documents",
+                denseVector,
+                16,
+                -Double.MAX_VALUE,
+                Map.of()
+        );
     }
 }

@@ -19,7 +19,7 @@ public class PromptBuilder {
      */
     public String build(String originalQuery, String rewrittenQuery, List<ChatMessage> shortMemory, List<RetrievedSegment> longMemory, List<RetrievedSegment> ragSegments) {
         StringBuilder context = new StringBuilder();
-        context.append("以下是相关的团队知识库内容，请基于这些内容回答问题，若内容中无答案，请说明“知识库中未找到相关答案”，不要编造：\n");
+        context.append("以下是相关的社团资料知识库内容，请基于这些内容回答问题，若内容中无答案，请说明“社团资料知识库中未找到相关答案”，不要编造：\n");
 
         // 检索片段按 1、2、3 的格式加入 Prompt，长期记忆也按同样格式合并。
         List<RetrievedSegment> knowledge = new ArrayList<>();
@@ -42,7 +42,15 @@ public class PromptBuilder {
      * 知识库无命中时，转为通用大模型回答。
      */
     public String buildGeneral(String originalQuery, String rewrittenQuery, List<ChatMessage> shortMemory) {
-        return "请回答问题：" + originalQuery;
+        StringBuilder prompt = new StringBuilder();
+        prompt.append("社团资料知识库没有检索到可用片段，系统会在最终答案前标注“社团资料知识库未命中，以下回答基于通用知识，仅供参考”。")
+                .append("请谨慎回答用户问题；如果问题涉及 baituan 社团资料、社团章程、活动指引、报名规则、审核流程或内部配置，必须说明需要补充对应知识库文档，不要编造。");
+        appendMessagesIfPresent(prompt, shortMemory);
+        if (StringUtils.hasText(rewrittenQuery) && !rewrittenQuery.equals(originalQuery)) {
+            prompt.append("\n检索用问题：").append(rewrittenQuery).append("\n");
+        }
+        prompt.append("\n用户问题：").append(originalQuery);
+        return prompt.toString();
     }
 
     /**

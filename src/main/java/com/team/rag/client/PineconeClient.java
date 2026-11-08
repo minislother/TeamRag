@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -96,6 +97,42 @@ public class PineconeClient {
             ));
         }
 
+        try {
+            return executeQuery(payload, minScore);
+        } catch (WebClientResponseException.BadRequest ex) {
+            if (isSparseQueryUnsupported(ex)) {
+                // 某些 cosine 索引不接受 sparseVector。上层会扩大 dense 候选集，
+                // 再用同一个 BM25 稀疏编码器在客户端完成加权重排。
+                throw new SparseQueryUnsupportedException(ex.getResponseBodyAsString(), ex);
+            }
+            throw ex;
+        }
+    }
+
+    /**
+     * 仅用稠密向量召回候选片段，供不支持 sparse query 的 Pinecone 索引降级使用。
+     */
+    public List<RetrievedSegment> queryDense(String namespace,
+                                             float[] denseVector,
+                                             int topK,
+                                             double minScore,
+                                             Map<String, Object> filter) {
+        requireConfig();
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("namespace", namespace);
+        payload.put("topK", topK);
+        payload.put("includeMetadata", true);
+        payload.put("vector", toDoubleList(denseVector));
+        if (filter != null && !filter.isEmpty()) {
+            payload.put("filter", filter);
+        }
+        return executeQuery(payload, minScore);
+    }
+
+    /**
+     * 执行查询并把 Pinecone 返回结构转换为项目内部的检索片段。
+     */
+    private List<RetrievedSegment> executeQuery(Map<String, Object> payload, double minScore) {
         JsonNode root = webClient.post()
                 .uri(dataPlaneUrl() + "/query")
                 .headers(headers -> headers.add("Api-Key", properties.getPinecone().getApiKey()))
@@ -125,6 +162,12 @@ public class PineconeClient {
                     .build());
         }
         return result;
+    }
+
+    private boolean isSparseQueryUnsupported(WebClientResponseException.BadRequest ex) {
+        String responseBody = ex.getResponseBodyAsString();
+        return StringUtils.hasText(responseBody)
+                && responseBody.toLowerCase().contains("does not support sparse values");
     }
 
     /**
@@ -226,5 +269,15 @@ public class PineconeClient {
      * Pinecone 单条向量记录。
      */
     public record VectorRecord(String id, float[] denseVector, SparseVector sparseVector, Map<String, Object> metadata) {
+    }
+
+    /**
+     * 表示当前 Pinecone 索引不支持服务端稀疏向量查询。
+     */
+    public static class SparseQueryUnsupportedException extends RuntimeException {
+
+        public SparseQueryUnsupportedException(String message, Throwable cause) {
+            super(message, cause);
+        }
     }
 }

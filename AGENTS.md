@@ -1,10 +1,10 @@
 # AGENTS.md
 
 ## 项目概述
-TeamRagKnowledgeBase 是一个 Spring Boot + DashScope/OpenAI 兼容模型 + Pinecone 的团队 RAG 知识库，提供文档上传入库和基于知识库的流式问答。
+TeamRagKnowledgeBase 是一个 Spring Boot + DashScope/OpenAI 兼容模型 + Pinecone 的 baituan 社团资料 RAG 知识库，提供社团资料上传入库和基于知识库的流式问答。
 
 ```text
-资料上传 -> Tika 解析 -> 语义分块 -> embedding + sparse vector -> Pinecone
+社团资料上传 -> Tika 解析 -> 语义分块 -> embedding + sparse vector -> Pinecone
 用户提问 -> 短期记忆 -> 查询重写 -> hybrid 检索 -> prompt -> glm-5 流式回答
 ```
 

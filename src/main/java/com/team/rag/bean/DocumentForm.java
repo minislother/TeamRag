@@ -18,7 +18,7 @@ public class DocumentForm {
     /** 文档文件，支持 PDF / Word / Markdown / TXT / HTML 等 Tika 可解析格式。 */
     private MultipartFile file;
 
-    /** 文档类型，例如：项目资料、研发规范、新人培训、问题排查。 */
+    /** 文档类型，例如：社团介绍、社团章程、活动指引、招新材料。 */
     private String docType;
 
     /** 所属项目，例如：支付系统、用户中心、数据平台。 */

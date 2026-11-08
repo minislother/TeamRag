@@ -5,6 +5,7 @@ import com.team.rag.client.DashScopeClient;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -12,6 +13,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @DisplayName("查询重写服务单元测试")
@@ -33,6 +35,33 @@ class QueryRewriteServiceTest {
         // Then
         assertThat(result).isEqualTo("Redis 缓存穿透如何解决");
         verifyNoInteractions(dashScopeClient);
+    }
+
+    @Test
+    @DisplayName("查询重写 - 多轮追问补全技术对象和检索意图")
+    void testRewrite_FollowUpQuestion_ReturnStandaloneRetrievalQuery() {
+        // Given
+        QueryRewriteService service = new QueryRewriteService(dashScopeClient);
+        List<ChatMessage> memory = List.of(
+                new ChatMessage("user", "Redis 缓存穿透是什么"),
+                new ChatMessage("assistant", "可以通过缓存空值、布隆过滤器和参数校验处理")
+        );
+        ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
+        when(dashScopeClient.complete(promptCaptor.capture()))
+                .thenReturn("Redis 缓存穿透在 Spring Boot 项目中如何处理");
+
+        // When
+        String result = service.rewrite("那在项目里怎么处理", memory);
+
+        // Then
+        assertThat(result).isEqualTo("Redis 缓存穿透在 Spring Boot 项目中如何处理");
+        assertThat(promptCaptor.getValue())
+                .contains("baituan 社团资料知识库")
+                .contains("只输出改写后的查询，不要解释")
+                .contains("user: Redis 缓存穿透是什么")
+                .contains("assistant: 可以通过缓存空值、布隆过滤器和参数校验处理")
+                .contains("用户问题：那在项目里怎么处理");
+        verify(dashScopeClient).complete(promptCaptor.getValue());
     }
 
     @Test

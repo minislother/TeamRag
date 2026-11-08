@@ -67,17 +67,17 @@ class FrontendSmokeIntegrationTest {
 
             page.navigate(baseUrl);
             page.locator("aside h1").waitFor();
-            assertThat(page.locator("aside h1").textContent()).isEqualTo("团队知识库");
-            page.locator("text=redis-guide.md").waitFor();
+            assertThat(page.locator("aside h1").textContent()).isEqualTo("社团资料库");
+            page.locator("text=轮滑社社团章程.md").waitFor();
             assertThat(page.locator("#runtimeInfo").textContent()).contains("text-embedding-v3", "glm-5");
 
-            page.fill("#questionInput", "Redis 缓存穿透如何解决");
+            page.fill("#questionInput", "轮滑社招新活动需要准备哪些材料");
             page.click("#sendButton");
-            page.locator("text=已基于知识库回答").waitFor();
+            page.locator("text=已基于社团资料回答").waitFor();
 
             page.locator("text=上传新版本").first().click();
             assertThat(page.locator("#updateTarget").isVisible()).isTrue();
-            assertThat(page.locator("#updateTargetText").textContent()).contains("redis-guide.md");
+            assertThat(page.locator("#updateTargetText").textContent()).contains("轮滑社社团章程.md");
             assertThat(consoleErrors).isEmpty();
         }
     }
@@ -123,10 +123,10 @@ class FrontendSmokeIntegrationTest {
                 [
                   {
                     "documentId":"doc-1",
-                    "filename":"redis-guide.md",
-                    "docType":"研发规范",
-                    "project":"infra",
-                    "tags":"Redis",
+                    "filename":"轮滑社社团章程.md",
+                    "docType":"社团章程",
+                    "project":"baituan",
+                    "tags":"轮滑社,章程",
                     "currentVersion":2,
                     "status":"ACTIVE",
                     "versions":[],
@@ -138,7 +138,7 @@ class FrontendSmokeIntegrationTest {
 
     private void documentUpload(HttpExchange exchange) throws IOException {
         sendJson(exchange, """
-                {"documentId":"doc-1","jobId":"job-ui","version":3,"filename":"redis-guide.md","status":"PENDING","message":"文档已提交入库任务"}
+                {"documentId":"doc-1","jobId":"job-ui","version":3,"filename":"轮滑社社团章程.md","status":"PENDING","message":"社团资料已提交入库任务"}
                 """);
     }
 
@@ -150,7 +150,7 @@ class FrontendSmokeIntegrationTest {
 
     private void ragQa(HttpExchange exchange) throws IOException {
         send(exchange, 200, "text/event-stream;charset=UTF-8", """
-                data: 已基于知识库回答：可以使用空值缓存、布隆过滤器和参数校验。
+                data: 已基于社团资料回答：招新前需要准备社团介绍、报名表、活动时间地点和安全说明。
 
                 data: [DONE]
 

@@ -18,6 +18,8 @@ public class RagProperties {
     private Document document = new Document();
     private SemanticSplitter semanticSplitter = new SemanticSplitter();
     private Hybrid hybrid = new Hybrid();
+    private QueryFusion queryFusion = new QueryFusion();
+    private Rerank rerank = new Rerank();
     private Memory memory = new Memory();
     private Lifecycle lifecycle = new Lifecycle();
     private Datasource datasource = new Datasource();
@@ -57,6 +59,10 @@ public class RagProperties {
         private Double similarityThreshold = 0.78;
         private Integer maxChars = 1800;
         private Integer overlapChars = 120;
+        /** cl100k_base 计数作为可复现的预算代理，并非 GLM 原生 tokenizer。 */
+        private Integer maxTokens = 500;
+        private Integer overlapTokens = 50;
+        private Integer contextBudgetTokens = 3000;
     }
 
     @Data
@@ -64,6 +70,26 @@ public class RagProperties {
         private Integer topK = 6;
         private Double alpha = 0.65;
         private Double minScore = 0.0;
+    }
+
+    /** 原始问题和改写问题的结果融合配置；RRF 避免直接比较两个查询的异构分数。 */
+    @Data
+    public static class QueryFusion {
+        private Boolean enabled = true;
+        private Double originalWeight = 0.4;
+        private Double rewrittenWeight = 0.6;
+        private Integer candidateCount = 12;
+        private Integer rrfK = 60;
+    }
+
+    /** 专用重排模型配置，原生 DashScope 接口独立于聊天的 OpenAI-compatible URL。 */
+    @Data
+    public static class Rerank {
+        private Boolean enabled = true;
+        private String model = "gte-rerank-v2";
+        private String url = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank";
+        private Integer candidateCount = 12;
+        private Integer timeoutSeconds = 10;
     }
 
     @Data

@@ -8,7 +8,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 
 /**
- * 团队 RAG 知识库启动类。
+ * baituan 社团资料 RAG 知识库启动类。
  *
  * <p>启动时先加载项目根目录下的 .env，便于复用 RepoPilot 原来的模型 API 配置。</p>
  */

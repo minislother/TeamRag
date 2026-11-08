@@ -26,6 +26,24 @@ class SemanticSplitterTest {
     private DashScopeClient dashScopeClient;
 
     @Test
+    @DisplayName("语义分块 - 合并预算包含换行且保留重叠上下文")
+    void testSplit_MergeAtLimit_CountSeparator() {
+        // Given - 三个基础片段的长度为 600、600、599；不计换行会错误合并为 1801。
+        RagProperties properties = new RagProperties();
+        SemanticSplitter splitter = new SemanticSplitter(dashScopeClient, properties);
+        String text = "A".repeat(599) + "。" + "B".repeat(599) + "。" + "C".repeat(598) + "。";
+        when(dashScopeClient.embed(anyList())).thenReturn(List.of(
+                new float[]{1, 0}, new float[]{1, 0}, new float[]{1, 0}));
+        // When
+        List<DocumentSegment> result = splitter.split("boundary", text, Map.of());
+        // Then
+        assertThat(result).extracting(segment -> segment.getText().length()).containsExactly(1201, 720);
+        assertThat(result.get(1).getText()).startsWith(result.get(0).getText().substring(1081) + "\n");
+        assertThat(result).allSatisfy(segment -> assertThat(segment.getText().length()).isLessThanOrEqualTo(1800));
+        org.mockito.Mockito.verify(dashScopeClient).embed(anyList());
+    }
+
+    @Test
     @DisplayName("语义分块 - 空文本返回空列表")
     void testSplit_BlankText_ReturnEmptyList() {
         // Given
@@ -129,5 +147,29 @@ class SemanticSplitterTest {
         // Then
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getText()).contains("A").contains("B");
+    }
+
+    @Test
+    @DisplayName("语义分块 - 章节标题会传播到后续片段元数据")
+    void testSplit_Heading_PropagatesMetadata() {
+        RagProperties properties = new RagProperties();
+        properties.getSemanticSplitter().setOverlapChars(0);
+        properties.getSemanticSplitter().setSimilarityThreshold(0.99);
+        SemanticSplitter splitter = new SemanticSplitter(dashScopeClient, properties);
+        String text = "第三章 场地申请\n\n" + "申请材料。".repeat(80) + "\n\n" + "审批流程。".repeat(80);
+        when(dashScopeClient.embed(anyList())).thenAnswer(invocation -> {
+            List<String> segments = invocation.getArgument(0);
+            List<float[]> vectors = new ArrayList<>();
+            for (int i = 0; i < segments.size(); i++) {
+                vectors.add(i % 2 == 0 ? new float[]{1f, 0f} : new float[]{0f, 1f});
+            }
+            return vectors;
+        });
+
+        List<DocumentSegment> result = splitter.split("doc-1", text, Map.of("filename", "制度.pdf"));
+
+        assertThat(result).isNotEmpty();
+        assertThat(result).allSatisfy(segment ->
+                assertThat(segment.getMetadata()).containsEntry("headingPath", "第三章 场地申请"));
     }
 }

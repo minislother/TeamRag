@@ -22,6 +22,9 @@ import java.time.OffsetDateTime;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 /**
  * 文档服务：负责接收上传、创建文档版本和异步入库任务。
@@ -62,7 +65,7 @@ public class DocumentService {
         int version = documentRepository.nextVersion(documentId);
         StoredDocumentFile storedFile = storageService.store(file, documentId, version);
 
-        DocumentVersion unchangedVersion = findUnchangedActiveVersion(documentId, storedFile.fileHash());
+        DocumentVersion unchangedVersion = findUnchangedActiveVersion(documentId, storedFile);
         if (unchangedVersion != null) {
             storageService.deleteQuietly(storedFile);
             return DocumentUploadResponse.builder()
@@ -199,12 +202,40 @@ public class DocumentService {
                 .build());
     }
 
-    private DocumentVersion findUnchangedActiveVersion(String documentId, String fileHash) {
+    /**
+     * Hash is the fast path; when it matches, verify size and bytes before skipping ingestion.
+     * This keeps SHA-256 collisions from being treated as duplicate content.
+     */
+    private DocumentVersion findUnchangedActiveVersion(String documentId, StoredDocumentFile storedFile) {
         return documentRepository.findVersions(documentId).stream()
                 .filter(version -> version.getStatus() == DocumentStatus.ACTIVE)
-                .filter(version -> fileHash.equals(version.getFileHash()))
+                .filter(version -> storedFile.fileHash().equals(version.getFileHash()))
+                .filter(version -> sameFileContent(storedFile.path(), version.getFilePath()))
                 .findFirst()
                 .orElse(null);
+    }
+
+    private boolean sameFileContent(String candidatePath, String existingPath) {
+        if (!StringUtils.hasText(candidatePath) || !StringUtils.hasText(existingPath)) {
+            // Older metadata may not contain a path; SHA-256 remains the available check.
+            return true;
+        }
+        try {
+            Path candidate = Path.of(candidatePath);
+            Path existing = Path.of(existingPath);
+            // Object-storage URIs (and legacy records whose local file was removed)
+            // cannot be byte-compared here; retain the SHA-256 fast-path in that case.
+            if (!Files.isRegularFile(candidate) || !Files.isRegularFile(existing)) {
+                return true;
+            }
+            if (Files.size(candidate) != Files.size(existing)) {
+                return false;
+            }
+            return Files.mismatch(candidate, existing) == -1L;
+        } catch (IOException | RuntimeException ex) {
+            log.warn("文件哈希相同但二次内容校验失败，将继续入库: {}", ex.getMessage());
+            return false;
+        }
     }
 
     private String resolveDocType(DocumentForm form, RagDocument existing) {

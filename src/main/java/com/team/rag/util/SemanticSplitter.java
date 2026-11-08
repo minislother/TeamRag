@@ -12,20 +12,34 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * 语义分块工具。
  *
  * <p>先切出较小的基础片段，再在相邻基础片段之间计算 embedding 余弦相似度，
- * 相似度高且未超过块长度时合并，从而减少团队规范、项目资料里的语义断裂。</p>
+ * 相似度高且未超过块长度时合并，从而减少社团章程、活动指引等资料里的语义断裂。</p>
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class SemanticSplitter {
 
+    private static final Pattern MARKDOWN_HEADING = Pattern.compile("^#{1,6}\\s+.+$");
+    private static final Pattern CHINESE_HEADING = Pattern.compile("^第[一二三四五六七八九十百千0-9]+[章节篇部分编].*$");
+    private static final Pattern NUMBERED_HEADING = Pattern.compile("^(?:\\d+(?:\\.\\d+){0,3}|[一二三四五六七八九十]+)[、.．]\\s*\\S.*$");
+
     private final DashScopeClient dashScopeClient;
     private final RagProperties properties;
+
+    /** 批量计算自然单元向量，供结构化切块寻找语义边界。 */
+    List<float[]> embedUnits(List<String> units) { return dashScopeClient.embed(units); }
+    double similarity(float[] left, float[] right) { return cosine(left, right); }
+
+    /** 入库入口：结构优先，短章节完整保留，超长章节才进入语义及长度兜底。 */
+    public List<DocumentSegment> splitAdaptive(String documentId, String text, Map<String, Object> metadata) {
+        return new AdaptiveChunker(this, properties).split(documentId, text, metadata);
+    }
 
     /**
      * 对文档文本做语义分块。
@@ -46,8 +60,9 @@ public class SemanticSplitter {
         for (int i = 1; i < baseSegments.size(); i++) {
             String next = baseSegments.get(i);
             double similarity = cosine(embeddings.get(i - 1), embeddings.get(i));
+            // 合并时会插入一个换行，长度预算也必须包含它，否则边界处会超过 maxChars。
             boolean canMerge = similarity >= properties.getSemanticSplitter().getSimilarityThreshold()
-                    && currentBlock.length() + next.length() <= properties.getSemanticSplitter().getMaxChars();
+                    && currentBlock.length() + 1 + next.length() <= properties.getSemanticSplitter().getMaxChars();
             if (canMerge) {
                 currentBlock.append("\n").append(next);
             } else {
@@ -139,11 +154,19 @@ public class SemanticSplitter {
      */
     private List<DocumentSegment> toDocumentSegments(String documentId, List<String> segments, Map<String, Object> baseMetadata) {
         List<DocumentSegment> result = new ArrayList<>();
+        String headingPath = "";
         for (int i = 0; i < segments.size(); i++) {
             Map<String, Object> metadata = new LinkedHashMap<>(baseMetadata);
+            String detectedHeading = findLastHeading(segments.get(i));
+            if (StringUtils.hasText(detectedHeading)) {
+                headingPath = detectedHeading;
+            }
             metadata.put("documentId", documentId);
             metadata.put("segmentIndex", i);
             metadata.put("text", segments.get(i));
+            if (StringUtils.hasText(headingPath)) {
+                metadata.put("headingPath", headingPath);
+            }
             String version = String.valueOf(metadata.getOrDefault("version", "1"));
             String vectorId = "doc:" + documentId + ":" + version + ":" + i;
             metadata.put("vectorId", vectorId);
@@ -156,6 +179,23 @@ public class SemanticSplitter {
                     .build());
         }
         return result;
+    }
+
+    /** 从常见 Markdown、中文章节和数字编号标题中提取当前章节。 */
+    private String findLastHeading(String segment) {
+        String heading = "";
+        for (String line : segment.split("\\R")) {
+            String value = line.trim();
+            if (value.length() > 120) {
+                continue;
+            }
+            if (MARKDOWN_HEADING.matcher(value).matches()
+                    || CHINESE_HEADING.matcher(value).matches()
+                    || NUMBERED_HEADING.matcher(value).matches()) {
+                heading = value.replaceFirst("^#{1,6}\\s+", "");
+            }
+        }
+        return heading;
     }
 
     /**

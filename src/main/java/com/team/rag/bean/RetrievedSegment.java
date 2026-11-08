@@ -15,5 +15,7 @@ public class RetrievedSegment {
     private String id;
     private String text;
     private Double score;
+    /** 专用模型相关性分数；禁用或降级时为空，score 仍是原始召回分数。 */
+    private Double rerankScore;
     private Map<String, Object> metadata;
 }

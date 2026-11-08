@@ -1,6 +1,14 @@
 package com.team.rag.client;
 
 import com.team.rag.config.RagProperties;
+import com.fasterxml.jackson.databind.JsonNode;
+import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.http.MediaType;
+import java.time.Duration;
+import java.util.Map;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Comparator;
 import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.chat.response.ChatResponse;
@@ -24,6 +32,47 @@ import java.util.List;
 public class DashScopeClient {
 
     private final RagProperties properties;
+    private final WebClient webClient;
+
+    /** 返回候选数组下标和相关性分数，绝不信任服务端返回的文档正文或元数据。 */
+    public record RerankResult(int index, double score) {}
+
+    /** 使用百炼原生重排协议；校验完整响应后再交给业务层映射回已授权的候选。 */
+    public List<RerankResult> rerank(String query, List<String> documents, int topN) {
+        requireApiKey();
+        if (!StringUtils.hasText(query) || documents == null || documents.isEmpty() || topN <= 0) {
+            throw new IllegalArgumentException("重排需要非空问题、候选文本和正数 topN");
+        }
+        RagProperties.Rerank config = properties.getRerank();
+        int expected = Math.min(topN, documents.size());
+        JsonNode response = webClient.post().uri(config.getUrl())
+                .headers(headers -> headers.setBearerAuth(properties.getDashscope().getApiKey()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of("model", config.getModel(),
+                        "input", Map.of("query", query, "documents", documents),
+                        "parameters", Map.of("top_n", expected, "return_documents", false)))
+                .retrieve().bodyToMono(JsonNode.class)
+                .block(Duration.ofSeconds(Math.max(1, config.getTimeoutSeconds())));
+        JsonNode results = response == null ? null : response.path("output").path("results");
+        if (results == null || !results.isArray() || results.size() != expected) {
+            throw new IllegalStateException("重排响应缺少完整 results");
+        }
+        List<RerankResult> ranked = new ArrayList<>();
+        HashSet<Integer> seen = new HashSet<>();
+        for (JsonNode result : results) {
+            JsonNode index = result.path("index");
+            JsonNode score = result.path("relevance_score");
+            if (!index.isIntegralNumber() || !index.canConvertToInt() || index.intValue() < 0
+                    || index.intValue() >= documents.size() || !seen.add(index.intValue())
+                    || !score.isNumber() || !Double.isFinite(score.doubleValue())
+                    || score.doubleValue() < 0 || score.doubleValue() > 1) {
+                throw new IllegalStateException("重排响应包含非法下标或分数");
+            }
+            ranked.add(new RerankResult(index.intValue(), score.doubleValue()));
+        }
+        ranked.sort(Comparator.comparingDouble(RerankResult::score).reversed());
+        return ranked;
+    }
 
     /**
      * 批量向量化文本；文档入库和问题检索都会先把文本变成向量。

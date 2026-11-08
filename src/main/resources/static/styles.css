@@ -1119,3 +1119,6 @@ textarea:focus {
         transform: translateX(-50%) translateY(0);
     }
 }
+
+/* 类型说明保持可见，键盘及屏幕阅读器用户也能理解分类选择。 */
+.chunking-guide { display: block; margin-top: 8px; line-height: 1.65; color: #475569; font-size: 13px; }

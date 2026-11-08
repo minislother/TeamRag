@@ -14,7 +14,7 @@ public class EmbeddingConfig {
      * 装配 DashScope 客户端，集中处理 embedding 和 glm-5 调用。
      */
     @Bean
-    public DashScopeClient dashScopeClient(RagProperties properties) {
-        return new DashScopeClient(properties);
+    public DashScopeClient dashScopeClient(RagProperties properties, org.springframework.web.reactive.function.client.WebClient ragWebClient) {
+        return new DashScopeClient(properties, ragWebClient);
     }
 }

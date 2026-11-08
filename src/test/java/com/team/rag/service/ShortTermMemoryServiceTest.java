@@ -21,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @DisplayName("短期记忆服务单元测试")
@@ -90,6 +91,35 @@ class ShortTermMemoryServiceTest {
 
         // Then
         assertThat(result).isEmpty();
+    }
+
+    @Test
+    @DisplayName("追加短期记忆 - 未超过摘要阈值时保留完整上下文")
+    void testAppendExchange_BelowSummaryThreshold_KeepFullContext() throws Exception {
+        // Given
+        properties.getMemory().setWindowSize(2);
+        properties.getMemory().setSummaryThreshold(6);
+        ShortTermMemoryService service = newService();
+        String existing = objectMapper.writeValueAsString(List.of(
+                new ChatMessage("user", "第一轮问题"),
+                new ChatMessage("assistant", "第一轮回答"),
+                new ChatMessage("user", "第二轮问题"),
+                new ChatMessage("assistant", "第二轮回答")
+        ));
+        when(valueOperations.get("team-rag:memory:demo")).thenReturn(existing);
+        ArgumentCaptor<String> jsonCaptor = ArgumentCaptor.forClass(String.class);
+
+        // When
+        service.appendExchange("demo", "第三轮问题", "第三轮回答");
+
+        // Then
+        verify(valueOperations).set(eq("team-rag:memory:demo"), jsonCaptor.capture(), any(Duration.class));
+        assertThat(jsonCaptor.getValue())
+                .contains("第一轮问题")
+                .contains("第二轮问题")
+                .contains("第三轮回答")
+                .doesNotContain("summary");
+        verifyNoInteractions(dashScopeClient);
     }
 
     @Test

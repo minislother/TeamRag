@@ -27,14 +27,22 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class RagQAService {
 
+    private static final String KNOWLEDGE_MISS_NOTICE = "社团资料知识库未命中，以下回答基于通用知识，仅供参考。\n";
+
     private final ShortTermMemoryService shortTermMemoryService;
     private final QueryRewriteService queryRewriteService;
     private final LongTermMemoryService longTermMemoryService;
     private final BM25Retriever bm25Retriever;
+    private final QueryFusionService queryFusionService;
     private final PromptBuilder promptBuilder;
     private final DashScopeClient dashScopeClient;
     private final RagProperties properties;
     private final AccessControlService accessControlService;
+    private final RerankService rerankService;
+    private final UserLongTermMemoryService userLongTermMemoryService;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private ChunkContextExpander chunkContextExpander;
 
     /**
      * RAG 混合检索问答，流式输出。
@@ -51,16 +59,20 @@ public class RagQAService {
 
         Map<String, Object> projectFilter = projectAccessFilter(qo);
 
-        // 长期记忆是用户或团队长期沉淀的信息；生产开启权限时也要按项目隔离。
+        // 长期记忆保存的是社团资料问答中沉淀的稳定事实；生产开启权限时也要按项目隔离。
         List<RetrievedSegment> longMemory = longTermMemoryService.recall(rewrittenQuery, projectFilter);
 
         // RAG 的“检索”步骤：用改写后的问题去 Pinecone 做 BM25 + 向量混合检索。
-        List<RetrievedSegment> ragSegments = bm25Retriever.retrieve(
-                rewrittenQuery,
-                qo.getTopK(),
+        List<RetrievedSegment> ragSegments = queryFusionService.retrieve(
+                query, rewrittenQuery, rerankService.candidateCount(qo.getTopK()),
                 properties.getPinecone().getNamespace(),
                 activeDocumentFilter(projectFilter)
         );
+
+        // 模型只接触通过项目权限和 ACTIVE 版本过滤的候选；重排后再截取最终上下文。
+        ragSegments = rerankService.rerank(rewrittenQuery, ragSegments, qo.getTopK());
+
+        if (chunkContextExpander != null) ragSegments = chunkContextExpander.expand(ragSegments);
 
         // 只有真正检索到可用文本时才构造 RAG Prompt；无命中时走通用大模型兜底。
         boolean knowledgeHit = promptBuilder.hasUsableKnowledge(longMemory) || promptBuilder.hasUsableKnowledge(ragSegments);
@@ -71,10 +83,17 @@ public class RagQAService {
                 conversationId, query, rewrittenQuery, ragSegments.size(), longMemory.size(), knowledgeHit);
 
         StringBuilder answer = new StringBuilder();
-        return dashScopeClient.stream(prompt)
+        Flux<String> answerStream = dashScopeClient.stream(prompt);
+        if (!knowledgeHit) {
+            answerStream = Flux.concat(Flux.just(KNOWLEDGE_MISS_NOTICE), answerStream);
+        }
+        return answerStream
                 .doOnNext(answer::append)
                 // 模型流式输出结束后，把本轮问答写回短期记忆，供下一轮追问使用。
-                .doOnComplete(() -> shortTermMemoryService.appendExchange(conversationId, query, answer.toString()));
+                .doOnComplete(() -> {
+                    shortTermMemoryService.appendExchange(conversationId, query, answer.toString());
+                    userLongTermMemoryService.extractAndStore(conversationId, query);
+                });
     }
 
     /**

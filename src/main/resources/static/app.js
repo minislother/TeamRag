@@ -45,19 +45,19 @@ let selectedTags = [];
 let authToken = "";
 
 const storage = {
-    conversationId: "team-rag-conversation",
-    project: "team-rag-project",
-    topK: "team-rag-top-k",
-    docTypes: "team-rag-doc-types",
-    projects: "team-rag-projects",
-    tags: "team-rag-tags",
-    authToken: "team-rag-auth-token"
+    conversationId: "baituan-club-rag-conversation",
+    project: "baituan-club-rag-project",
+    topK: "baituan-club-rag-top-k",
+    docTypes: "baituan-club-rag-doc-types",
+    projects: "baituan-club-rag-projects",
+    tags: "baituan-club-rag-tags",
+    authToken: "baituan-club-rag-auth-token"
 };
 
 const defaultOptions = {
-    docTypes: ["研发规范", "项目资料", "培训材料", "问题排查"],
-    projects: [],
-    tags: ["规范", "培训", "排查"]
+    docTypes: ["社团介绍", "社团章程", "活动指引", "招新材料", "财务报销", "安全预案", "复盘报告", "常见问答", "管理制度", "管理规范"],
+    projects: ["baituan"],
+    tags: ["招新", "章程", "活动", "报名", "审核", "场地", "预算", "安全", "复盘"]
 };
 
 const optionState = {
@@ -84,7 +84,6 @@ const tagCombo = createTagCombo();
 
 loadSettings();
 loadOptionHistory();
-projectInput.value = "";
 syncTagsInput();
 initAuth();
 
@@ -464,7 +463,7 @@ function renderDocumentList(documents) {
     if (documents.length === 0) {
         const empty = document.createElement("div");
         empty.className = "empty-state";
-        empty.textContent = "暂无入库文档";
+        empty.textContent = "暂无入库社团资料";
         documentList.append(empty);
         return;
     }
@@ -484,8 +483,8 @@ function renderDocumentList(documents) {
         const meta = document.createElement("div");
         meta.className = "document-meta";
         meta.textContent = [
-            item.docType || "未分类",
-            item.project || "未指定项目",
+            item.docType || "未分类资料",
+            item.project || "未指定项目/社团",
             item.currentVersion ? `v${item.currentVersion}` : "处理中"
         ].join(" · ");
 
@@ -514,9 +513,9 @@ function clearUpdateTarget() {
 
 function formatUploadResponse(payload, fallbackFilename) {
     return [
-        payload.message || "文档已提交入库任务",
-        `文档：${payload.filename || fallbackFilename}`,
-        `文档 ID：${payload.documentId || "-"}`,
+        payload.message || "社团资料已提交入库任务",
+        `资料：${payload.filename || fallbackFilename}`,
+        `资料 ID：${payload.documentId || "-"}`,
         `版本：${payload.version || "-"}`,
         `状态：${statusText(payload.status)}`
     ].join("\n");
@@ -525,7 +524,7 @@ function formatUploadResponse(payload, fallbackFilename) {
 function formatJobStatus(payload) {
     const lines = [
         `入库任务：${statusText(payload.status)}`,
-        `文档 ID：${payload.documentId || "-"}`,
+        `资料 ID：${payload.documentId || "-"}`,
         `版本：${payload.version || "-"}`,
         `进度：${payload.progress ?? 0}%`
     ];
@@ -582,6 +581,7 @@ function scrollMessagesToBottom() {
 
 function loadSettings() {
     conversationInput.value = localStorage.getItem(storage.conversationId) || conversationInput.value;
+    projectInput.value = localStorage.getItem(storage.project) || "baituan";
     topKInput.value = localStorage.getItem(storage.topK) || topKInput.value;
 }
 

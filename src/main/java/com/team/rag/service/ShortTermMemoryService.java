@@ -69,17 +69,17 @@ public class ShortTermMemoryService {
         int windowSize = Math.max(properties.getMemory().getWindowSize(), 2);
         int threshold = Math.max(properties.getMemory().getSummaryThreshold(), windowSize);
         if (messages.size() <= threshold) {
-            return tail(messages, windowSize);
+            return new ArrayList<>(messages);
         }
         List<ChatMessage> older = messages.subList(0, Math.max(messages.size() - windowSize, 0));
         List<ChatMessage> recent = tail(messages, windowSize);
-        StringBuilder prompt = new StringBuilder("请把以下团队知识库对话压缩成一句上下文摘要，保留用户目标、关键约束和已确认事实：\n");
+        StringBuilder prompt = new StringBuilder("请把以下社团资料知识库对话压缩成一句上下文摘要，保留用户目标、关键约束和已确认事实：\n");
         older.forEach(message -> prompt.append(message.getRole()).append(": ").append(message.getContent()).append("\n"));
         String summary;
         try {
             summary = dashScopeClient.complete(prompt.toString());
         } catch (Exception ex) {
-            summary = "前文已有多轮与团队知识库相关的追问。";
+            summary = "前文已有多轮与社团资料知识库相关的追问。";
         }
         List<ChatMessage> compacted = new ArrayList<>();
         compacted.add(new ChatMessage("summary", summary));

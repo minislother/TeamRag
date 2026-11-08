@@ -19,9 +19,9 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 /**
- * 文档管理接口：上传团队项目资料、研发规范、新人培训材料等。
+ * 文档管理接口：上传社团介绍、社团章程、活动指引、招新材料等。
  */
-@Tag(name = "文档管理", description = "团队 RAG 知识库文档上传接口")
+@Tag(name = "文档管理", description = "baituan 社团资料知识库文档上传接口")
 @RestController
 @RequestMapping("/api/document")
 @RequiredArgsConstructor

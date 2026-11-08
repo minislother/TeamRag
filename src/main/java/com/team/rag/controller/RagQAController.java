@@ -16,7 +16,7 @@ import reactor.core.publisher.Flux;
 /**
  * RAG 问答接口：短期记忆、查询重写、长期记忆、混合检索和流式大模型回答。
  */
-@Tag(name = "RAG 问答", description = "团队 RAG 知识库混合检索问答接口")
+@Tag(name = "RAG 问答", description = "baituan 社团资料知识库混合检索问答接口")
 @RestController
 @RequestMapping("/api/rag")
 @RequiredArgsConstructor
